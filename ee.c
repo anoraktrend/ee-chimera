@@ -193,6 +193,11 @@ static void lsp_start() {
   if (lsp_pid == 0) {
     dup2(lsp_to_child[0], STDIN_FILENO);
     dup2(lsp_from_child[1], STDOUT_FILENO);
+    int devnull = open("/dev/null", O_WRONLY);
+    if (devnull != -1) {
+      dup2(devnull, STDERR_FILENO);
+      close(devnull);
+    }
     close(lsp_to_child[0]);
     close(lsp_to_child[1]);
     close(lsp_from_child[0]);
