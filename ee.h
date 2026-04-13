@@ -2,27 +2,30 @@
 #define EE_H
 
 #define _GNU_SOURCE
-#define XOPEN_SOURCE 700
+#ifndef _XOPEN_SOURCE
+#define _XOPEN_SOURCE 700
+#endif
 
-#include <stdint.h>
-#include <stdio.h>
-#include <string.h>
-#include <stdarg.h>
-#include <sys/types.h>
-#include <unistd.h>
-#include <fcntl.h>
+#include "ee_version.h"
+#include <ctype.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <locale.h>
 #include <ncurses.h>
 #include <nl_types.h>
+#include <pwd.h>
 #include <signal.h>
-#include <sys/stat.h>
-#include <sys/wait.h>
+#include <stdarg.h>
 #include <stdbool.h>
+#include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
-#include <ctype.h>
-
+#include <string.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/wait.h>
 #include <tree_sitter/api.h>
-#include "ee_version.h"
+#include <unistd.h>
 
 #ifndef nullptr
 #define nullptr NULL
@@ -117,7 +120,8 @@ static void prev_word(void);
 void right(int disp);
 void insert_line(int disp);
 void midscreen(int line, unsigned char *pnt);
-static void draw_line(int vertical, int horiz, unsigned char *ptr, int t_pos, int length);
+static void draw_line(int vertical, int horiz, unsigned char *ptr, int t_pos,
+                      int length);
 void scanline(const unsigned char *pos);
 void left(int disp);
 int tabshift(int temp_int);
@@ -147,22 +151,21 @@ int unique_test(char *string, char *list[]);
 int from_top(struct text *test_line);
 void echo_string(char *string);
 bool compare(char *string1, char *string2, bool sensitive);
-char *resolve_name(char *name);
+char *resolve_name(const char *name);
 int write_file(char *file_name, bool warn_if_exists);
 char *get_token(char *string, char *substring);
 char *catgetlocal(int number, char *string);
-unsigned char *next_word(unsigned char *string);
+void *next_word(void *string);
 void draw_screen(void);
 void get_file(const char *file_name);
 void get_line(int length, unsigned char *in_string, int *append);
-
 
 /*
  |	Safe string copy
  */
 static ssize_t strscpy(char *dest, const char *src, size_t count);
 
-static void paint_menu(struct menu_entries menu_list[], int max_width, int max_height,
-                       int list_size, int top_offset, WINDOW *menu_win, int off_start,
-                       int vert_size);
+static void paint_menu(struct menu_entries menu_list[], int max_width,
+                       int max_height, int list_size, int top_offset,
+                       WINDOW *menu_win, int off_start, int vert_size);
 #endif /* EE_H */
