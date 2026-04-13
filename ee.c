@@ -55,6 +55,11 @@
  |
  */
 
+#define _GNU_SOURCE
+#ifndef _XOPEN_SOURCE
+#define _XOPEN_SOURCE 700
+#endif
+
 #include "ee.h"
 
 char *ee_copyright_message = "Copyright (c) 1986, 1990, 1991, 1992, 1993, "
@@ -62,10 +67,20 @@ char *ee_copyright_message = "Copyright (c) 1986, 1990, 1991, 1992, 1993, "
 
 static char *version = "@(#) ee, version " EE_VERSION " $Revision: 1.104 $";
 
-// Correct prototypes for menu callbacks which expect int (*)(int) or int (*)(struct menu_entries *)
-static int quit_wrapper(int arg) { quit(arg); return 0; }
-static int file_op_wrapper(int arg) { file_op(arg); return 0; }
-static int search_wrapper(int arg) { search(arg); return 0; }
+// Correct prototypes for menu callbacks which expect int (*)(int) or int
+// (*)(struct menu_entries *)
+static int quit_wrapper(int arg) {
+  quit(arg);
+  return 0;
+}
+static int file_op_wrapper(int arg) {
+  file_op(arg);
+  return 0;
+}
+static int search_wrapper(int arg) {
+  search(arg);
+  return 0;
+}
 static int menu_op_wrapper(struct menu_entries *m) { return menu_op(m); }
 
 /**
@@ -114,8 +129,8 @@ static struct files *top_of_stack = nullptr;
 
 const TSLanguage *tree_sitter_c(void);
 
-    // Tree-Sitter Globals
-    TSParser *ts_parser = nullptr;
+// Tree-Sitter Globals
+TSParser *ts_parser = nullptr;
 static TSTree *ts_tree = nullptr;
 
 // LSP Globals
@@ -126,20 +141,31 @@ static pid_t lsp_pid = -1;
 static struct diagnostic *diagnostics_list = nullptr;
 
 const char *ts_read_buffer(void *payload, uint32_t byte_index, TSPoint position,
-             uint32_t *bytes_read) {
+                           uint32_t *bytes_read) {
   struct text *line = (struct text *)payload;
   uint32_t current_index = 0;
-while (line != nullptr) {
-  if (byte_index >= current_index &&
-      byte_index < current_index + line->line_length) {
-    *bytes_read = line->line_length - (byte_index - current_index);
-    return (const char *)(line->line + (byte_index - current_index));
+  static const char newline = '\n';
+
+  while (line != nullptr) {
+    uint32_t text_len = (line->line_length > 0) ? (line->line_length - 1) : 0;
+    uint32_t total_line_len = text_len + 1;
+
+    if (byte_index >= current_index &&
+        byte_index < current_index + total_line_len) {
+      uint32_t offset = byte_index - current_index;
+      if (offset < text_len) {
+        *bytes_read = text_len - offset;
+        return (const char *)(line->line + offset);
+      } else {
+        *bytes_read = 1;
+        return &newline;
+      }
+    }
+    current_index += total_line_len;
+    line = line->next_line;
   }
-  current_index += line->line_length;
-  line = line->next_line;
-}
-*bytes_read = 0;
-return nullptr;
+  *bytes_read = 0;
+  return nullptr;
 }
 
 static void reparse() {
@@ -179,8 +205,8 @@ static void lsp_start() {
   fcntl(lsp_from_child[0], F_SETFL, O_NONBLOCK);
 
   // Initialize
-  lsp_send(
-      "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"processId\":0,\"rootUri\":null,\"capabilities\":{}}}");
+  lsp_send("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":"
+           "{\"processId\":0,\"rootUri\":null,\"capabilities\":{}}}");
 }
 
 void lsp_send(const char *msg) {
@@ -196,7 +222,7 @@ static void lsp_open_file(const char *filename) {
   }
   // Read buffer into string
   size_t total_len = 0;
-  struct text  const*line = first_line;
+  struct text const *line = first_line;
   while (line != nullptr) {
     total_len += line->line_length;
     line = line->next_line;
@@ -216,7 +242,7 @@ static void lsp_open_file(const char *filename) {
   // Escape JSON
   char *escaped = malloc((total_len * 2) + 1);
   char *e_ptr = escaped;
-  for (char  const*ptr_c = buf; (*ptr_c) != 0; ptr_c++) {
+  for (char const *ptr_c = buf; (*ptr_c) != 0; ptr_c++) {
     if (*ptr_c == '\"' || *ptr_c == '\\' || *ptr_c == '\n' || *ptr_c == '\r' ||
         *ptr_c == '\t') {
       *e_ptr++ = '\\';
@@ -236,10 +262,11 @@ static void lsp_open_file(const char *filename) {
   *e_ptr = '\0';
 
   char *msg = malloc((total_len * 2) + 1024);
-  sprintf(
-      msg,
-      "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/didOpen\",\"params\":{\"textDocument\":{\"uri\":\"file://%s\",\"languageId\":\"c\",\"version\":1,\"text\":\"%s\"}}}",
-      filename, escaped);
+  sprintf(msg,
+          "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/"
+          "didOpen\",\"params\":{\"textDocument\":{\"uri\":\"file://"
+          "%s\",\"languageId\":\"c\",\"version\":1,\"text\":\"%s\"}}}",
+          filename, escaped);
   lsp_send(msg);
   free(buf);
   free(escaped);
@@ -273,7 +300,7 @@ static void lsp_poll() {
         }
         char *msg_ptr = strstr(char_ptr, "\"message\":\"");
         if (msg_ptr != nullptr) {
-          char  const*msg_end = strchr(msg_ptr + 11, '\"');
+          char const *msg_end = strchr(msg_ptr + 11, '\"');
           if (msg_end != nullptr) {
             diagnostics_list = malloc(sizeof(struct diagnostic));
             diagnostics_list->line = line + 1;
@@ -306,8 +333,6 @@ constexpr int MAX_ALPHA_CHAR = 36;
 #ifndef NO_CATGETS
 
 static nl_catd catalog;
-#else
-#define catgetlocal(a, b) (b)
 #endif /* NO_CATGETS */
 
 #ifndef SIGCHLD
@@ -341,44 +366,47 @@ static int scr_vert;     /* vertical position on screen		*/
 static int scr_horz;     /* horizontal position on screen	*/
 static int absolute_lin; /* number of lines from top		*/
 static int tmp_vert, tmp_horz;
-static bool input_file;              /* indicate to read input file		*/
-static bool recv_file;               /* indicate reading a file		*/
-static bool edit;                    /* continue executing while true	*/
-static bool gold;                    /* 'gold' function key pressed		*/
-static int fildes;                   /* file descriptor			*/
-static bool case_sen;                /* case sensitive search flag		*/
-static int last_line;                /* last line for text display		*/
-static int last_col;                 /* last column for text display		*/
-static int horiz_offset = 0;         /* offset from left edge of text	*/
-static bool clear_com_win;           /* flag to indicate com_win needs clearing */
-static bool text_changes = false;    /* indicate changes have been made to text */
-static int get_fd;                   /* file descriptor for reading a file	*/
-static bool info_window = true;      /* flag to indicate if help window visible */
-static int info_type = CONTROL_KEYS; /* flag to indicate type of info to display */
-static bool expand_tabs = true;      /* flag for expanding tabs		*/
-static int right_margin = 0;         /* the right margin 			*/
-static bool observ_margins = true;   /* flag for whether margins are observed */
+static bool input_file;           /* indicate to read input file		*/
+static bool recv_file;            /* indicate reading a file		*/
+static bool edit;                 /* continue executing while true	*/
+static bool gold;                 /* 'gold' function key pressed		*/
+static int fildes;                /* file descriptor			*/
+static bool case_sen;             /* case sensitive search flag		*/
+static int last_line;             /* last line for text display		*/
+static int last_col;              /* last column for text display		*/
+static int horiz_offset = 0;      /* offset from left edge of text	*/
+static bool clear_com_win;        /* flag to indicate com_win needs clearing */
+static bool text_changes = false; /* indicate changes have been made to text */
+static int get_fd;                /* file descriptor for reading a file	*/
+static bool info_window = true;   /* flag to indicate if help window visible */
+static int info_type =
+    CONTROL_KEYS;               /* flag to indicate type of info to display */
+static bool expand_tabs = true; /* flag for expanding tabs		*/
+static int right_margin = 0;    /* the right margin 			*/
+static bool observ_margins = true; /* flag for whether margins are observed */
 static int shell_fork;
-static int temp_stdin;                  /* temporary storage for stdin		*/
-static int temp_stdout;                 /* temp storage for stdout descriptor	*/
-static int temp_stderr;                 /* temp storage for stderr descriptor	*/
-static int pipe_out[2];                 /* pipe file desc for output		*/
-static int pipe_in[2];                  /* pipe file descriptors for input	*/
-static bool out_pipe;                   /* flag that info is piped out		*/
-static bool in_pipe;                    /* flag that info is piped in		*/
-static bool formatted = false;          /* flag indicating paragraph formatted	*/
-static bool auto_format = false;        /* flag for auto_format mode		*/
-static bool restricted = false;         /* flag to indicate restricted mode	*/
-static bool nohighlight = false;        /* turns off highlighting		*/
-static bool eightbit = true;            /* eight bit character flag		*/
-static int local_LINES = 0;             /* copy of LINES, to detect when win resizes */
-static int local_COLS = 0;              /* copy of COLS, to detect when win resizes  */
-static bool curses_initialized = false; /* flag indicating if curses has been started*/
-static bool emacs_keys_mode = false;    /* mode for if emacs key binings are used    */
-static bool ee_chinese = false;         /* allows handling of multi-byte characters  */
-                                 /* by checking for high bit in a byte the    */
-                                 /* code recognizes a two-byte character      */
-                                 /* sequence				     */
+static int temp_stdin;           /* temporary storage for stdin		*/
+static int temp_stdout;          /* temp storage for stdout descriptor	*/
+static int temp_stderr;          /* temp storage for stderr descriptor	*/
+static int pipe_out[2];          /* pipe file desc for output		*/
+static int pipe_in[2];           /* pipe file descriptors for input	*/
+static bool out_pipe;            /* flag that info is piped out		*/
+static bool in_pipe;             /* flag that info is piped in		*/
+static bool formatted = false;   /* flag indicating paragraph formatted	*/
+static bool auto_format = false; /* flag for auto_format mode		*/
+static bool restricted = false;  /* flag to indicate restricted mode	*/
+static bool nohighlight = false; /* turns off highlighting		*/
+static bool eightbit = true;     /* eight bit character flag		*/
+static int local_LINES = 0;      /* copy of LINES, to detect when win resizes */
+static int local_COLS = 0;       /* copy of COLS, to detect when win resizes  */
+static bool curses_initialized =
+    false; /* flag indicating if curses has been started*/
+static bool emacs_keys_mode =
+    false;                      /* mode for if emacs key binings are used    */
+static bool ee_chinese = false; /* allows handling of multi-byte characters  */
+                                /* by checking for high bit in a byte the    */
+                                /* code recognizes a two-byte character      */
+                                /* sequence				     */
 
 static unsigned char *point;      /* points to current position in line	*/
 static unsigned char *srch_str;   /* pointer for search string		*/
@@ -386,25 +414,24 @@ static unsigned char *u_srch_str; /* pointer to non-case sensitive search	*/
 static unsigned char *srch_1;     /* pointer to start of suspect string	*/
 static unsigned char *srch_2;     /* pointer to next character of string	*/
 static unsigned char *srch_3;
-static unsigned char *in_file_name = nullptr; /* name of input file		*/
-static char *tmp_file;                        /* temporary file name			*/
-static unsigned char *d_char;                 /* deleted character			*/
-static unsigned char *d_word;                 /* deleted word				*/
-static unsigned char *d_line;                 /* deleted line				*/
-static char in_string[MAX_IN_STRING];         /* buffer for reading a file		*/
-static unsigned char *print_command =
-    (unsigned char *)"lpr"; /* string to use for the print command 	*/
-static unsigned char *start_at_line =
-    nullptr; /* move to this line at start of session*/
-static int in;      /* input character			*/
+static char *in_file_name = nullptr; /* name of input file		*/
+static char *tmp_file;        /* temporary file name			*/
+static unsigned char *d_char; /* deleted character			*/
+static unsigned char *d_word; /* deleted word				*/
+static unsigned char *d_line; /* deleted line				*/
+static unsigned char
+    in_string[MAX_IN_STRING]; /* buffer for reading a file		*/
+static char *print_command = (char *)"lpr"; /* string to use for the print command 	*/
+static char *start_at_line = nullptr; /* move to this line at start of session*/
+static int in; /* input character			*/
 
 static FILE *temp_fp;    /* temporary file pointer		*/
 static FILE *bit_bucket; /* file pointer to /dev/null		*/
 
 static char *table[] = {"^@", "^A", "^B", "^C", "^D",  "^E", "^F", "^G",
-                 "^H", "\t", "^J", "^K", "^L",  "^M", "^N", "^O",
-                 "^P", "^Q", "^R", "^S", "^T",  "^U", "^V", "^W",
-                 "^X", "^Y", "^Z", "^[", "^\\", "^]", "^^", "^_"};
+                        "^H", "\t", "^J", "^K", "^L",  "^M", "^N", "^O",
+                        "^P", "^Q", "^R", "^S", "^T",  "^U", "^V", "^W",
+                        "^X", "^Y", "^Z", "^[", "^\\", "^]", "^^", "^_"};
 
 static WINDOW *com_win;
 static WINDOW *text_win;
@@ -431,206 +458,207 @@ static WINDOW *info_win;
  */
 
 #undef P_
-  /*
-   |	allocate space here for the strings that will be in the menu
-   */
+/*
+ |	allocate space here for the strings that will be in the menu
+ */
 
-  struct menu_entries const modes_menu[] = {
-      {"", nullptr, nullptr, nullptr, nullptr, 0}, /* title		*/
-      {"", nullptr, nullptr, nullptr, nullptr,
-       -1}, /* 1. tabs to spaces	*/
-      {"", nullptr, nullptr, nullptr, nullptr,
-       -1}, /* 2. case sensitive search*/
-      {"", nullptr, nullptr, nullptr, nullptr,
-       -1}, /* 3. margins observed	*/
-      {"", nullptr, nullptr, nullptr, nullptr,
-       -1},                                         /* 4. auto-paragraph	*/
-      {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 5. eightbit characters*/
-      {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 6. info window	*/
-      {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 7. emacs key bindings*/
-      {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 8. right margin	*/
-      {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 9. chinese text	*/
-      {"", nullptr, nullptr, nullptr, dump_ee_conf,
-       -1}, /* 10. save editor config */
-      {nullptr, nullptr, nullptr, nullptr, nullptr, -1}
-      /* terminator		*/
-  };
+struct menu_entries modes_menu[] = {
+    {"", nullptr, nullptr, nullptr, nullptr, 0},  /* title		*/
+    {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 1. tabs to spaces	*/
+    {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 2. case sensitive search*/
+    {"", nullptr, nullptr, nullptr, nullptr,
+     -1},                                         /* 3. margins observed	*/
+    {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 4. auto-paragraph	*/
+    {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 5. eightbit characters*/
+    {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 6. info window	*/
+    {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 7. emacs key bindings*/
+    {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 8. right margin	*/
+    {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 9. chinese text	*/
+    {"", nullptr, nullptr, nullptr, dump_ee_conf,
+     -1}, /* 10. save editor config */
+    {nullptr, nullptr, nullptr, nullptr, nullptr, -1}
+    /* terminator		*/
+};
 
-  char *mode_strings[11];
+char *mode_strings[11];
 
-  enum { NUM_MODES_ITEMS = 10 };
+enum { NUM_MODES_ITEMS = 10 };
 
-  struct menu_entries const config_dump_menu[] = {
-      {"", nullptr, nullptr, nullptr, nullptr, 0},
-      {"", nullptr, nullptr, nullptr, nullptr, -1},
-      {"", nullptr, nullptr, nullptr, nullptr, -1},
-      {nullptr, nullptr, nullptr, nullptr, nullptr, -1}};
+struct menu_entries config_dump_menu[] = {
+    {"", nullptr, nullptr, nullptr, nullptr, 0},
+    {"", nullptr, nullptr, nullptr, nullptr, -1},
+    {"", nullptr, nullptr, nullptr, nullptr, -1},
+    {nullptr, nullptr, nullptr, nullptr, nullptr, -1}};
 
-  struct menu_entries leave_menu[] = {
-      {"", nullptr, nullptr, nullptr, nullptr, -1},
-      {"", nullptr, nullptr, nullptr, finish, -1},
-      {"", nullptr, nullptr, quit_wrapper, nullptr, 1},
-      {nullptr, nullptr, nullptr, nullptr, nullptr, -1}};
+struct menu_entries leave_menu[] = {
+    {"", nullptr, nullptr, nullptr, nullptr, -1},
+    {"", nullptr, nullptr, nullptr, finish, -1},
+    {"", nullptr, nullptr, quit_wrapper, nullptr, 1},
+    {nullptr, nullptr, nullptr, nullptr, nullptr, -1}};
 
-  enum { READ_FILE = 1, WRITE_FILE = 2, SAVE_FILE = 3 };
+enum { READ_FILE = 1, WRITE_FILE = 2, SAVE_FILE = 3 };
 
-  struct menu_entries file_menu[] = {
-      {"", nullptr, nullptr, nullptr, nullptr, -1},
-      {"", nullptr, nullptr, file_op_wrapper, nullptr, READ_FILE},
-      {"", nullptr, nullptr, file_op_wrapper, nullptr, WRITE_FILE},
-      {"", nullptr, nullptr, file_op_wrapper, nullptr, SAVE_FILE},
-      {"", nullptr, nullptr, nullptr, print_buffer, -1},
-      {nullptr, nullptr, nullptr, nullptr, nullptr, -1}};
+struct menu_entries file_menu[] = {
+    {"", nullptr, nullptr, nullptr, nullptr, -1},
+    {"", nullptr, nullptr, file_op_wrapper, nullptr, READ_FILE},
+    {"", nullptr, nullptr, file_op_wrapper, nullptr, WRITE_FILE},
+    {"", nullptr, nullptr, file_op_wrapper, nullptr, SAVE_FILE},
+    {"", nullptr, nullptr, nullptr, print_buffer, -1},
+    {nullptr, nullptr, nullptr, nullptr, nullptr, -1}};
 
-  struct menu_entries search_menu[] = {
-      {"", nullptr, nullptr, nullptr, nullptr, 0},
-      {"", nullptr, nullptr, nullptr, search_prompt, -1},
-      {"", nullptr, nullptr, search_wrapper, nullptr, 1},
-      {nullptr, nullptr, nullptr, nullptr, nullptr, -1}};
+struct menu_entries search_menu[] = {
+    {"", nullptr, nullptr, nullptr, nullptr, 0},
+    {"", nullptr, nullptr, nullptr, search_prompt, -1},
+    {"", nullptr, nullptr, search_wrapper, nullptr, 1},
+    {nullptr, nullptr, nullptr, nullptr, nullptr, -1}};
 
-  struct menu_entries const spell_menu[] = {
-      {"", nullptr, nullptr, nullptr, nullptr, -1},
-      {"", nullptr, nullptr, nullptr, spell_op, -1},
-      {"", nullptr, nullptr, nullptr, ispell_op, -1},
-      {nullptr, nullptr, nullptr, nullptr, nullptr, -1}};
+struct menu_entries spell_menu[] = {
+    {"", nullptr, nullptr, nullptr, nullptr, -1},
+    {"", nullptr, nullptr, nullptr, spell_op, -1},
+    {"", nullptr, nullptr, nullptr, ispell_op, -1},
+    {nullptr, nullptr, nullptr, nullptr, nullptr, -1}};
 
-  struct menu_entries misc_menu[] = {
-      {"", nullptr, nullptr, nullptr, nullptr, -1},
-      {"", nullptr, nullptr, nullptr, Format, -1},
-      {"", nullptr, nullptr, nullptr, shell_op, -1},
-      {"", (int (*)(struct menu_entries *))menu_op_wrapper, (struct menu_entries *)spell_menu, nullptr, nullptr, -1},
-      {nullptr, nullptr, nullptr, nullptr, nullptr, -1}};
+struct menu_entries misc_menu[] = {
+    {"", nullptr, nullptr, nullptr, nullptr, -1},
+    {"", nullptr, nullptr, nullptr, Format, -1},
+    {"", nullptr, nullptr, nullptr, shell_op, -1},
+    {"", (int (*)(struct menu_entries *))menu_op_wrapper,
+     (struct menu_entries *)spell_menu, nullptr, nullptr, -1},
+    {nullptr, nullptr, nullptr, nullptr, nullptr, -1}};
 
-  struct menu_entries main_menu[] = {
-      {"", nullptr, nullptr, nullptr, nullptr, -1},
-      {"", nullptr, nullptr, nullptr, leave_op, -1},
-      {"", nullptr, nullptr, nullptr, help, -1},
-      {"", (int (*)(struct menu_entries *))menu_op_wrapper, (struct menu_entries *)file_menu, nullptr, nullptr, -1},
-      {"", nullptr, nullptr, nullptr, redraw, -1},
-      {"", nullptr, nullptr, nullptr, modes_op, -1},
-      {"", (int (*)(struct menu_entries *))menu_op_wrapper, (struct menu_entries *)search_menu, nullptr, nullptr, -1},
-      {"", (int (*)(struct menu_entries *))menu_op_wrapper, (struct menu_entries *)misc_menu, nullptr, nullptr, -1},
-      {nullptr, nullptr, nullptr, nullptr, nullptr, -1}};
+struct menu_entries main_menu[] = {
+    {"", nullptr, nullptr, nullptr, nullptr, -1},
+    {"", nullptr, nullptr, nullptr, leave_op, -1},
+    {"", nullptr, nullptr, nullptr, help, -1},
+    {"", (int (*)(struct menu_entries *))menu_op_wrapper,
+     (struct menu_entries *)file_menu, nullptr, nullptr, -1},
+    {"", nullptr, nullptr, nullptr, redraw, -1},
+    {"", nullptr, nullptr, nullptr, modes_op, -1},
+    {"", (int (*)(struct menu_entries *))menu_op_wrapper,
+     (struct menu_entries *)search_menu, nullptr, nullptr, -1},
+    {"", (int (*)(struct menu_entries *))menu_op_wrapper,
+     (struct menu_entries *)misc_menu, nullptr, nullptr, -1},
+    {nullptr, nullptr, nullptr, nullptr, nullptr, -1}};
 
-  char *help_text[23];
-  char *control_keys[5];
+char *help_text[23];
+char *control_keys[5];
 
-  char *emacs_help_text[22];
-  char *emacs_control_keys[5];
+char *emacs_help_text[22];
+char *emacs_control_keys[5];
 
-  char *command_strings[5];
-  char *commands[32];
-  char *init_strings[22];
+char *command_strings[5];
+char *commands[32];
+char *init_strings[22];
 
-  enum { MENU_WARN = 1 };
+enum { MENU_WARN = 1 };
 
-  enum { max_alpha_char = 36 };
+enum { max_alpha_char = 36 };
 
-  /*
-   |	Declarations for strings for localization
-   */
+/*
+ |	Declarations for strings for localization
+ */
 
-  char *com_win_message; /* to be shown in com_win if no info window */
-  char *no_file_string;
-  char *ascii_code_str;
-  char *printer_msg_str;
-  char *command_str;
-  char *file_write_prompt_str;
-  char *file_read_prompt_str;
-  char *char_str;
-  char *unkn_cmd_str;
-  char *non_unique_cmd_msg;
-  char *line_num_str;
-  char *line_len_str;
-  char *current_file_str;
-  char *usage0;
-  char *usage1;
-  char *usage2;
-  char *usage3;
-  char *usage4;
-  char *file_is_dir_msg;
-  char *new_file_msg;
-  char *cant_open_msg;
-  char *open_file_msg;
-  char *file_read_fin_msg;
-  char *reading_file_msg;
-  char *read_only_msg;
-  char *file_read_lines_msg;
-  char *save_file_name_prompt;
-  char *file_not_saved_msg;
-  char *changes_made_prompt;
-  char *yes_char;
-  char *file_exists_prompt;
-  char *create_file_fail_msg;
-  char *writing_file_msg;
-  char *file_written_msg;
-  char *searching_msg;
-  char *str_not_found_msg;
-  char *search_prompt_str;
-  char *exec_err_msg;
-  char *continue_msg;
-  char *menu_cancel_msg;
-  char *menu_size_err_msg;
-  char *press_any_key_msg;
-  char *shell_prompt;
-  char *formatting_msg;
-  char *shell_echo_msg;
-  char *spell_in_prog_msg;
-  char *margin_prompt;
-  char *restricted_msg;
-  char *STATE_ON;
-  char *STATE_OFF;
-  char *HELP;
-  char *WRITE;
-  char *READ;
-  char *LINE;
-  char *FILE_str;
-  char *CHARACTER;
-  char *REDRAW;
-  char *RESEQUENCE;
-  char *AUTHOR;
-  char *VERSION;
-  char *CASE;
-  char *NOCASE;
-  char *EXPAND;
-  char *NOEXPAND;
-  char *Exit_string;
-  char *QUIT_string;
-  char *INFO;
-  char *NOINFO;
-  char *MARGINS;
-  char *NOMARGINS;
-  char *AUTOFORMAT;
-  char *NOAUTOFORMAT;
-  char *Echo;
-  char *PRINTCOMMAND;
-  char *RIGHTMARGIN;
-  char *HIGHLIGHT;
-  char *NOHIGHLIGHT;
-  char *EIGHTBIT;
-  char *NOEIGHTBIT;
-  char *EMACS_string;
-  char *NOEMACS_string;
-  char *conf_dump_err_msg;
-  char *conf_dump_success_msg;
-  char *conf_not_saved_msg;
-  char *ree_no_file_msg;
-  char *cancel_string;
-  char *menu_too_lrg_msg;
-  char *more_above_str;
-  char *more_below_str;
-  char  const*separator =
-      "============================================================"
-      "===================";
+char *com_win_message; /* to be shown in com_win if no info window */
+char *no_file_string;
+char *ascii_code_str;
+char *printer_msg_str;
+char *command_str;
+char *file_write_prompt_str;
+char *file_read_prompt_str;
+char *char_str;
+char *unkn_cmd_str;
+char *non_unique_cmd_msg;
+char *line_num_str;
+char *line_len_str;
+char *current_file_str;
+char *usage0;
+char *usage1;
+char *usage2;
+char *usage3;
+char *usage4;
+char *file_is_dir_msg;
+char *new_file_msg;
+char *cant_open_msg;
+char *open_file_msg;
+char *file_read_fin_msg;
+char *reading_file_msg;
+char *read_only_msg;
+char *file_read_lines_msg;
+char *save_file_name_prompt;
+char *file_not_saved_msg;
+char *changes_made_prompt;
+char *yes_char;
+char *file_exists_prompt;
+char *create_file_fail_msg;
+char *writing_file_msg;
+char *file_written_msg;
+char *searching_msg;
+char *str_not_found_msg;
+char *search_prompt_str;
+char *exec_err_msg;
+char *continue_msg;
+char *menu_cancel_msg;
+char *menu_size_err_msg;
+char *press_any_key_msg;
+char *shell_prompt;
+char *formatting_msg;
+char *shell_echo_msg;
+char *spell_in_prog_msg;
+char *margin_prompt;
+char *restricted_msg;
+char *STATE_ON;
+char *STATE_OFF;
+char *HELP;
+char *WRITE;
+char *READ;
+char *LINE;
+char *FILE_str;
+char *CHARACTER;
+char *REDRAW;
+char *RESEQUENCE;
+char *AUTHOR;
+char *VERSION;
+char *CASE;
+char *NOCASE;
+char *EXPAND;
+char *NOEXPAND;
+char *Exit_string;
+char *QUIT_string;
+char *INFO;
+char *NOINFO;
+char *MARGINS;
+char *NOMARGINS;
+char *AUTOFORMAT;
+char *NOAUTOFORMAT;
+char *Echo;
+char *PRINTCOMMAND;
+char *RIGHTMARGIN;
+char *HIGHLIGHT;
+char *NOHIGHLIGHT;
+char *EIGHTBIT;
+char *NOEIGHTBIT;
+char *EMACS_string;
+char *NOEMACS_string;
+char *conf_dump_err_msg;
+char *conf_dump_success_msg;
+char *conf_not_saved_msg;
+char *ree_no_file_msg;
+char *cancel_string;
+char *menu_too_lrg_msg;
+char *more_above_str;
+char *more_below_str;
+char const *separator =
+    "============================================================"
+    "===================";
 
-  char *chinese_cmd;
-  char *nochinese_cmd;
+char *chinese_cmd;
+char *nochinese_cmd;
 
-  /* beginning of main program          */
-  int main(int argc, char *argv[]) {
-    int counter;
+/* beginning of main program          */
+int main(int argc, char *argv[]) {
+  int counter;
 
-    for (counter = 1; counter < 24; counter++) {
+  for (counter = 1; counter < 24; counter++) {
 
     signal(counter, SIG_IGN);
   }
@@ -767,6 +795,7 @@ static WINDOW *info_win;
       if (top_of_stack != nullptr) {
         lsp_change_file((const char *)top_of_stack->name);
       }
+      text_changes = false;
     }
   }
   return 0;
@@ -1010,42 +1039,42 @@ int tabshift(int temp_int) {
 
 int out_char(WINDOW *window, int character, int column) {
   int i1;
-static int i2;
-static char *string;
-static char string2[16];
+  static int i2;
+  static char *string;
+  static char string2[16];
 
-if (character == TAB) {
-  i1 = tabshift(column);
-  for (i2 = 0; (i2 < i1) && (((column + i2 + 1) - horiz_offset) < last_col);
-       i2++) {
-    waddch(window, ' ');
-  }
-  return i1;
-}
-if ((character >= '\0') && (character < ' ')) {
-  string = table[character];
-} else if ((character < 0) || (character >= 127)) {
-  if (character == 127) {
-    {
-      string = "^?";
+  if (character == TAB) {
+    i1 = tabshift(column);
+    for (i2 = 0; (i2 < i1) && (((column + i2 + 1) - horiz_offset) < last_col);
+         i2++) {
+      waddch(window, ' ');
     }
-  } else if (!eightbit) {
-    sprintf(string2, "<%d>", (character < 0) ? (character + 256) : character);
-    string = string2;
+    return i1;
+  }
+  if ((character >= '\0') && (character < ' ')) {
+    string = table[character];
+  } else if ((character < 0) || (character >= 127)) {
+    if (character == 127) {
+      {
+        string = "^?";
+      }
+    } else if (!eightbit) {
+      sprintf(string2, "<%d>", (character < 0) ? (character + 256) : character);
+      string = string2;
+    } else {
+      waddch(window, (unsigned char)character);
+      return 1;
+    }
   } else {
     waddch(window, (unsigned char)character);
     return 1;
   }
-} else {
-  waddch(window, (unsigned char)character);
-  return 1;
-}
-for (i2 = 0;
-     (string[i2] != '\0') && (((column + i2 + 1) - horiz_offset) < last_col);
-     i2++) {
-  waddch(window, (unsigned char)string[i2]);
-}
-return (strlen(string));
+  for (i2 = 0;
+       (string[i2] != '\0') && (((column + i2 + 1) - horiz_offset) < last_col);
+       i2++) {
+    waddch(window, (unsigned char)string[i2]);
+  }
+  return (strlen(string));
 }
 
 /* return the length of the character   */
@@ -1069,7 +1098,6 @@ int len_char(int character, int column) {
   return length;
 }
 
-
 static int get_node_attribute(int line, int col) {
   if (ts_tree == nullptr) {
     return A_NORMAL;
@@ -1079,34 +1107,37 @@ static int get_node_attribute(int line, int col) {
   TSNode node = ts_node_descendant_for_point_range(root, p, p);
   const char *type = ts_node_type(node);
 
-if (strcmp(type, "comment") == 0) {
-  return COLOR_PAIR(1);
-}
-if (strcmp(type, "string_literal") == 0 ||
-    strcmp(type, "system_lib_string") == 0) {
-  return COLOR_PAIR(2);
-}
-if (strcmp(type, "number_literal") == 0) {
-  return COLOR_PAIR(3);
-}
-if (strcmp(type, "primitive_type") == 0 ||
-    strcmp(type, "type_identifier") == 0) {
-  return COLOR_PAIR(4);
-}
-if (strcmp(type, "identifier") == 0) {
-  TSNode parent = ts_node_parent(node);
-  const char *p_type = ts_node_type(parent);
-  if (strcmp(p_type, "function_declarator") == 0 ||
-      strcmp(p_type, "call_expression") == 0) {
-    return COLOR_PAIR(5);
+  if (strcmp(type, "comment") == 0) {
+    return COLOR_PAIR(1);
   }
-  return COLOR_PAIR(6);
-}
-if (!ts_node_is_named(node)) {
-  return COLOR_PAIR(7);
-}
+  if (strcmp(type, "string_literal") == 0 ||
+      strcmp(type, "system_lib_string") == 0) {
+    return COLOR_PAIR(2);
+  }
+  if (strcmp(type, "number_literal") == 0) {
+    return COLOR_PAIR(3);
+  }
+  if (strcmp(type, "primitive_type") == 0 ||
+      strcmp(type, "type_identifier") == 0) {
+    return COLOR_PAIR(4);
+  }
+  if (strcmp(type, "identifier") == 0) {
+    TSNode parent = ts_node_parent(node);
+    const char *p_type = ts_node_type(parent);
+    if (strcmp(p_type, "function_declarator") == 0 ||
+        strcmp(p_type, "call_expression") == 0) {
+      return COLOR_PAIR(5);
+    }
+    return COLOR_PAIR(6);
+  }
+  if (!ts_node_is_named(node)) {
+    if (isalpha((unsigned char)type[0])) {
+      return COLOR_PAIR(7);
+    }
+    return A_NORMAL;
+  }
 
-return A_NORMAL;
+  return A_NORMAL;
 }
 
 void lsp_change_file(const char *filename) {
@@ -1114,7 +1145,7 @@ void lsp_change_file(const char *filename) {
     return;
   }
   size_t total_len = 0;
-  struct text  const*line = first_line;
+  struct text const *line = first_line;
   while (line != nullptr) {
     total_len += line->line_length;
     line = line->next_line;
@@ -1133,7 +1164,7 @@ void lsp_change_file(const char *filename) {
 
   char *escaped = (char *)malloc((total_len * 2) + 1);
   char *e_ptr = escaped;
-  for (char  const*ptr_c = buf; (*ptr_c) != 0; ptr_c++) {
+  for (char const *ptr_c = buf; (*ptr_c) != 0; ptr_c++) {
     if (*ptr_c == '\"' || *ptr_c == '\\' || *ptr_c == '\n' || *ptr_c == '\r' ||
         *ptr_c == '\t') {
       *e_ptr++ = '\\';
@@ -1166,7 +1197,7 @@ void lsp_change_file(const char *filename) {
 
 /* redraw line from current position */
 static void draw_line(int vertical, int horiz, unsigned char *ptr, int t_pos,
-               int length) {
+                      int length) {
   int d;               /* partial length of special or tab char to display  */
   unsigned char *temp; /* temporary pointer to position in line	     */
   int abs_column;      /* offset in screen units from begin of line	     */
@@ -1183,7 +1214,7 @@ static void draw_line(int vertical, int horiz, unsigned char *ptr, int t_pos,
 
   // Find line number
   int line_no = 1;
-  struct text  const*l_ptr = first_line;
+  struct text const *l_ptr = first_line;
   while (l_ptr != nullptr && l_ptr->line != ptr - (t_pos - 1)) {
     l_ptr = l_ptr->next_line;
     line_no++;
@@ -1206,10 +1237,10 @@ static void draw_line(int vertical, int horiz, unsigned char *ptr, int t_pos,
     int attr = get_node_attribute(line_no, posit - 1);
 
     // Check diagnostics
-    struct diagnostic  const*diag = diagnostics_list;
+    struct diagnostic const *diag = diagnostics_list;
     while (diag != nullptr) {
       if (diag->line == line_no && diag->col == posit - 1) {
-        attr |= A_REVERSE | COLOR_PAIR(1); // Highlight error
+        attr |= A_REVERSE | COLOR_PAIR(8); // Highlight error
         break;
       }
       diag = diag->next;
@@ -1305,25 +1336,38 @@ void insert_line(int disp) {
 
 /* allocate space for line structure	*/
 struct text *txtalloc(void) {
-return ((struct text *)malloc(sizeof(struct text)));
+  return ((struct text *)malloc(sizeof(struct text)));
 }
 
 /* allocate space for file name list node */
 struct files *name_alloc(void) {
-return ((struct files *)malloc(sizeof(struct files)));
+  return ((struct files *)malloc(sizeof(struct files)));
+}
+
+/* return the length of the first word in the line */
+static int first_word_len(struct text *line) {
+  int len = 0;
+  unsigned char *ptr = line->line;
+  while ((*ptr != '\0') && ((*ptr == ' ') || (*ptr == '\t'))) {
+    ptr++;
+  }
+  while ((*ptr != '\0') && (*ptr != ' ') && (*ptr != '\t')) {
+    len++;
+    ptr++;
+  }
+  return len;
 }
 
 /* move to next word in string		*/
-unsigned char *next_word(unsigned char *string) {
-while ((*string != '\0') &&
-                                              ((*string != 32) &&
-                                               (*string != 9))) {
-  string++;
-}
-while ((*string != '\0') && ((*string == 32) || (*string == 9))) {
-  string++;
-}
-return string;
+void *next_word(void *s) {
+  unsigned char *string = (unsigned char *)s;
+  while ((*string != '\0') && ((*string != 32) && (*string != 9))) {
+    string++;
+  }
+  while ((*string != '\0') && ((*string == 32) || (*string == 9))) {
+    string++;
+  }
+  return string;
 }
 
 /* move to start of previous word in text	*/
@@ -1960,7 +2004,7 @@ void command(char *cmd_str1) {
       cmd_str = cmd_str2 = get_string(file_write_prompt_str, 1);
     }
     tmp_file = resolve_name(cmd_str);
-    write_file(tmp_file, 1);
+    write_file(tmp_file, true);
     if (tmp_file != cmd_str) {
       free(tmp_file);
     }
@@ -2131,56 +2175,56 @@ char *get_string(char *prompt, int advance) {
       tmp_int = g_horz;
       g_pos--;
       g_horz = get_string_len(g_point, g_pos, g_position);
-    tmp_int = tmp_int - g_horz;
-    for (; 0 < tmp_int; tmp_int--) {
-      if ((g_horz + tmp_int) < (last_col - 1)) {
-        waddch(com_win, '\010');
-        waddch(com_win, ' ');
-        waddch(com_win, '\010');
+      tmp_int = tmp_int - g_horz;
+      for (; 0 < tmp_int; tmp_int--) {
+        if ((g_horz + tmp_int) < (last_col - 1)) {
+          waddch(com_win, '\010');
+          waddch(com_win, ' ');
+          waddch(com_win, '\010');
+        }
       }
+      nam_str--;
+    } else if ((in != 8) && (in != 127) && (in != '\n') && (in != '\r') &&
+               (in < 256)) {
+      if (in == '\026') /* control-v, accept next character verbatim	*/
+      {                 /* allows entry of ^m, ^j, and ^h	*/
+        esc_flag = 1;
+        in = wgetch(com_win);
+        if (in == -1) {
+          exit(0);
+        }
+      }
+      *nam_str = in;
+      g_pos++;
+      if ((isprint((unsigned char)in) == 0) && (g_horz < (last_col - 1))) {
+        {
+          g_horz += out_char(com_win, in, g_horz);
+        }
+      } else {
+        g_horz++;
+        if (g_horz < (last_col - 1)) {
+          waddch(com_win, (unsigned char)in);
+        }
+      }
+      nam_str++;
     }
-    nam_str--;
-  } else if ((in != 8) && (in != 127) && (in != '\n') && (in != '\r') &&
-             (in < 256)) {
-    if (in == '\026') /* control-v, accept next character verbatim	*/
-    {                 /* allows entry of ^m, ^j, and ^h	*/
-      esc_flag = 1;
-      in = wgetch(com_win);
-      if (in == -1) {
-        exit(0);
-      }
+    wrefresh(com_win);
+    if (esc_flag != 0) {
+      in = '\0';
     }
-    *nam_str = in;
-    g_pos++;
-    if ((isprint((unsigned char)in) == 0) && (g_horz < (last_col - 1))) {
-      {
-        g_horz += out_char(com_win, in, g_horz);
-      }
-    } else {
-      g_horz++;
-      if (g_horz < (last_col - 1)) {
-        waddch(com_win, (unsigned char)in);
-      }
-    }
-    nam_str++;
+  } while ((in != '\n') && (in != '\r'));
+  *nam_str = '\0';
+  nam_str = tmp_string;
+  if (((*nam_str == ' ') || (*nam_str == 9)) && (advance != 0)) {
+    nam_str = next_word(nam_str);
   }
-  wrefresh(com_win);
-  if (esc_flag != 0) {
-    in = '\0';
-  }
-} while ((in != '\n') && (in != '\r'));
-*nam_str = '\0';
-nam_str = tmp_string;
-if (((*nam_str == ' ') || (*nam_str == 9)) && (advance != 0)) {
-  nam_str = next_word(nam_str);
-}
-size_t string_len = strlen(nam_str) + 1;
-string = malloc(string_len);
-strscpy(string, nam_str, string_len);
+  size_t string_len = strlen(nam_str) + 1;
+  string = malloc(string_len);
+  strscpy(string, nam_str, string_len);
 
-free(tmp_string);
-wrefresh(com_win);
-return string;
+  free(tmp_string);
+  wrefresh(com_win);
+  return string;
 }
 
 /* compare two strings  */
@@ -2194,33 +2238,33 @@ bool compare(char *string1, char *string2, bool sensitive) {
     return false;
   }
   while (equal) {
-  if (sensitive) {
-    if (*strng1 != *strng2) {
-      equal = false;
+    if (sensitive) {
+      if (*strng1 != *strng2) {
+        equal = false;
+      }
+    } else {
+      if (toupper((unsigned char)*strng1) != toupper((unsigned char)*strng2)) {
+        equal = false;
+      }
     }
-  } else {
-    if (toupper((unsigned char)*strng1) != toupper((unsigned char)*strng2)) {
-      equal = false;
+    strng1++;
+    strng2++;
+    if ((*strng1 == '\0') || (*strng2 == '\0') || (*strng1 == ' ') ||
+        (*strng2 == ' ')) {
+      break;
     }
   }
-  strng1++;
-  strng2++;
-  if ((*strng1 == '\0') || (*strng2 == '\0') || (*strng1 == ' ') ||
-      (*strng2 == ' ')) {
-    break;
-  }
-}
-return equal;
+  return equal;
 }
 
 static void goto_line(char *cmd_str) {
   int number;
   int i;
-  char *ptr;
+  unsigned char *ptr;
   char direction = '\0';
   struct text *t_line;
 
-  ptr = cmd_str;
+  ptr = (unsigned char *)cmd_str;
   i = 0;
   while ((*ptr >= '0') && (*ptr <= '9')) {
     i = (i * 10) + (*ptr - '0');
@@ -2284,7 +2328,7 @@ void get_options(int numargs, char *arguments[]) {
   int count;
   struct files *temp_names = nullptr;
   char *name;
-  char *ptr;
+  unsigned char *ptr;
   int no_more_opts = 0;
 
   /*
@@ -2365,7 +2409,7 @@ void check_fp() {
   tmp_horz = scr_horz;
   tmp_line = curr_line;
   if (input_file) {
-    in_file_name = tmp_file = top_of_stack->name;
+    in_file_name = tmp_file = (char *)top_of_stack->name;
     top_of_stack = top_of_stack->next_name;
   }
   temp = stat(tmp_file, &buf);
@@ -2610,7 +2654,7 @@ void finish() {
     file_name = tmp_file;
   }
 
-  if (write_file(file_name, 1) != 0) {
+  if (write_file(file_name, true) != 0) {
     text_changes = false;
     quit(0);
   }
@@ -2700,42 +2744,42 @@ int write_file(char *file_name, bool warn_if_exists) {
 
   clear_com_win = true;
 
-if (write_flag != 0) {
-  if ((temp_fp = fopen(file_name, "w")) == nullptr) {
-    clear_com_win = true;
+  if (write_flag != 0) {
+    if ((temp_fp = fopen(file_name, "w")) == nullptr) {
+      clear_com_win = true;
+      wmove(com_win, 0, 0);
+      wclrtoeol(com_win);
+      wprintw(com_win, create_file_fail_msg, file_name);
+      wrefresh(com_win);
+      return 0;
+    }
+
     wmove(com_win, 0, 0);
     wclrtoeol(com_win);
-    wprintw(com_win, create_file_fail_msg, file_name);
+    wprintw(com_win, writing_file_msg, file_name);
     wrefresh(com_win);
-    return 0;
-  }
-
-  wmove(com_win, 0, 0);
-  wclrtoeol(com_win);
-  wprintw(com_win, writing_file_msg, file_name);
-  wrefresh(com_win);
-  cr = '\n';
-  out_line = first_line;
-  while (out_line != nullptr) {
-    temp_pos = 1;
-    tmp_point = (char *)out_line->line;
-    while (temp_pos < out_line->line_length) {
-      putc(*tmp_point, temp_fp);
-      tmp_point++;
-      temp_pos++;
+    cr = '\n';
+    out_line = first_line;
+    while (out_line != nullptr) {
+      temp_pos = 1;
+      tmp_point = (char *)out_line->line;
+      while (temp_pos < out_line->line_length) {
+        putc(*tmp_point, temp_fp);
+        tmp_point++;
+        temp_pos++;
+      }
+      charac += out_line->line_length;
+      out_line = out_line->next_line;
+      putc(cr, temp_fp);
+      lines++;
     }
-    charac += out_line->line_length;
-    out_line = out_line->next_line;
-    putc(cr, temp_fp);
-    lines++;
+    fclose(temp_fp);
+    wmove(com_win, 0, 0);
+    wclrtoeol(com_win);
+    wprintw(com_win, file_written_msg, file_name, lines, charac);
+    wrefresh(com_win);
+    return 1;
   }
-  fclose(temp_fp);
-  wmove(com_win, 0, 0);
-  wclrtoeol(com_win);
-  wprintw(com_win, file_written_msg, file_name, lines, charac);
-  wrefresh(com_win);
-  return 1;
-}
   return 0;
 }
 
@@ -2763,79 +2807,79 @@ int search(int display_message) {
     srch_1++;
   }
   iter = position + 1;
-while ((found == 0) && (srch_line != nullptr)) {
-  while ((iter < srch_line->line_length) && (found == 0)) {
-    srch_2 = srch_1;
-    if (case_sen) /* if case sensitive		*/
-    {
-      srch_3 = srch_str;
-      while ((*srch_2 == *srch_3) && (*srch_3 != '\0')) {
-        found = 1;
-        srch_2++;
-        srch_3++;
-      } /* end while	*/
-    } else /* if not case sensitive	*/
-    {
-      srch_3 = u_srch_str;
-      while ((toupper(*srch_2) == *srch_3) && (*srch_3 != '\0')) {
-        found = 1;
-        srch_2++;
-        srch_3++;
+  while ((found == 0) && (srch_line != nullptr)) {
+    while ((iter < srch_line->line_length) && (found == 0)) {
+      srch_2 = srch_1;
+      if (case_sen) /* if case sensitive		*/
+      {
+        srch_3 = srch_str;
+        while ((*srch_2 == *srch_3) && (*srch_3 != '\0')) {
+          found = 1;
+          srch_2++;
+          srch_3++;
+        } /* end while	*/
+      } else /* if not case sensitive	*/
+      {
+        srch_3 = u_srch_str;
+        while ((toupper(*srch_2) == *srch_3) && (*srch_3 != '\0')) {
+          found = 1;
+          srch_2++;
+          srch_3++;
+        }
+      } /* end else	*/
+      if ((*srch_3 != '\0') || !(found != 0)) {
+        found = 0;
+        if (iter < srch_line->line_length) {
+          srch_1++;
+        }
+        iter++;
       }
-    } /* end else	*/
-    if ((*srch_3 != '\0') || !(found != 0)) {
-      found = 0;
-      if (iter < srch_line->line_length) {
-        srch_1++;
+    }
+    if (found == 0) {
+      srch_line = srch_line->next_line;
+      if (srch_line != nullptr) {
+        srch_1 = srch_line->line;
       }
-      iter++;
+      iter = 1;
+      lines_moved++;
     }
   }
-  if (found == 0) {
-    srch_line = srch_line->next_line;
-    if (srch_line != nullptr) {
-      srch_1 = srch_line->line;
+  if (found != 0) {
+    if (display_message != 0) {
+      wmove(com_win, 0, 0);
+      wclrtoeol(com_win);
+      wrefresh(com_win);
     }
-    iter = 1;
-    lines_moved++;
-  }
-}
-if (found != 0) {
-  if (display_message != 0) {
-    wmove(com_win, 0, 0);
-    wclrtoeol(com_win);
-    wrefresh(com_win);
-  }
-  if (lines_moved == 0) {
-    while (position < iter) {
-      right(1);
-    }
-  } else {
-    if (lines_moved < 30) {
-      move_rel('d', lines_moved);
+    if (lines_moved == 0) {
       while (position < iter) {
         right(1);
       }
     } else {
-      absolute_lin += lines_moved;
-      curr_line = srch_line;
-      point = srch_1;
-      position = iter;
-      scanline(point);
-      scr_pos = scr_horz;
-      midscreen((last_line / 2), point);
+      if (lines_moved < 30) {
+        move_rel('d', lines_moved);
+        while (position < iter) {
+          right(1);
+        }
+      } else {
+        absolute_lin += lines_moved;
+        curr_line = srch_line;
+        point = srch_1;
+        position = iter;
+        scanline(point);
+        scr_pos = scr_horz;
+        midscreen((last_line / 2), point);
+      }
     }
+  } else {
+    if (display_message != 0) {
+      wmove(com_win, 0, 0);
+      wclrtoeol(com_win);
+      wprintw(com_win, str_not_found_msg, srch_str);
+      wrefresh(com_win);
+    }
+    wmove(text_win, scr_vert, (scr_horz - horiz_offset));
   }
-} else {
-  if (display_message != 0) {
-    wmove(com_win, 0, 0);
-    wclrtoeol(com_win);
-    wprintw(com_win, str_not_found_msg, srch_str);
-    wrefresh(com_win);
-  }
-  wmove(text_win, scr_vert, (scr_horz - horiz_offset));
-}
-return found;
+  return found;
 }
 
 /* prompt and read search string (srch_str)	*/
@@ -2846,10 +2890,10 @@ static void search_prompt() {
   if ((u_srch_str != nullptr) && (*u_srch_str != '\0')) {
     free(u_srch_str);
   }
-  srch_str = get_string(search_prompt_str, 0);
+  srch_str = (unsigned char *)get_string(search_prompt_str, 0);
   gold = false;
   srch_3 = srch_str;
-  srch_1 = u_srch_str = malloc(strlen(srch_str) + 1);
+  srch_1 = u_srch_str = malloc(strlen((char *)srch_str) + 1);
   while (*srch_3 != '\0') {
     *srch_1 = toupper(*srch_3);
     srch_1++;
@@ -3078,7 +3122,7 @@ void adv_word() {
 /* move relative to current line	*/
 void move_rel(int direction, int lines) {
   int i;
-  char *tmp;
+  unsigned char *tmp;
 
   if (direction == 'u') {
     scr_pos = 0;
@@ -3467,9 +3511,9 @@ int menu_op(struct menu_entries menu_list[]) {
   int vert_size;     /* vertical size for menu list item display */
   int off_start = 1; /* offset from start of menu items to start display */
 
-/*
- |      determine number and width of menu items
- */
+  /*
+   |      determine number and width of menu items
+   */
 
   list_size = 1;
   while (menu_list[list_size + 1].item_string != nullptr) {
@@ -3483,14 +3527,14 @@ int menu_op(struct menu_entries menu_list[]) {
   }
   max_width += 3;
   max_width = max(max_width, (int)strlen(menu_cancel_msg));
-  max_width = max(max_width,
-                  max((int)strlen(more_above_str), (int)strlen(more_below_str)));
+  max_width = max(
+      max_width, max((int)strlen(more_above_str), (int)strlen(more_below_str)));
   max_width += 6;
 
-/*
- |      make sure that window is large enough to handle menu
- |      if not, print error message and return to calling function
- */
+  /*
+   |      make sure that window is large enough to handle menu
+   |      if not, print error message and return to calling function
+   */
 
   if (max_width > COLS) {
     wmove(com_win, 0, 0);
@@ -3533,129 +3577,129 @@ int menu_op(struct menu_entries menu_list[]) {
 
   counter = 1;
 
-do {
-  if (off_start > 2) {
-    wmove(temp_win, (1 + counter + top_offset - off_start), 3);
-  } else {
-    wmove(temp_win, (counter + top_offset - off_start), 3);
-  }
-
-  wrefresh(temp_win);
-  in = wgetch(temp_win);
-  input = in;
-  if (input == -1) {
-    exit(0);
-  }
-
-  if ((isascii(input) != 0) && (isalnum(input) != 0)) {
-    if (isalpha(input) != 0) {
-      temp = 1 + tolower(input) - 'a';
-    } else if (isdigit(input) != 0) {
-      temp = (2 + 'z' - 'a') + (input - '0');
+  do {
+    if (off_start > 2) {
+      wmove(temp_win, (1 + counter + top_offset - off_start), 3);
+    } else {
+      wmove(temp_win, (counter + top_offset - off_start), 3);
     }
 
-    if (temp <= list_size) {
-      input = '\n';
-      counter = temp;
+    wrefresh(temp_win);
+    in = wgetch(temp_win);
+    input = in;
+    if (input == -1) {
+      exit(0);
     }
-  } else {
-    switch (input) {
-    case ' ':    /* space	*/
-    case '\004': /* ^d, down	*/
-    case KEY_RIGHT:
-    case KEY_DOWN:
-      counter++;
-      if (counter > list_size) {
-        counter = 1;
+
+    if ((isascii(input) != 0) && (isalnum(input) != 0)) {
+      if (isalpha(input) != 0) {
+        temp = 1 + tolower(input) - 'a';
+      } else if (isdigit(input) != 0) {
+        temp = (2 + 'z' - 'a') + (input - '0');
       }
-      break;
-    case '\010': /* ^h, backspace*/
-    case '\025': /* ^u, up	*/
-    case 127:    /* ^?, delete	*/
-    case KEY_BACKSPACE:
-    case KEY_LEFT:
-    case KEY_UP:
-      counter--;
-      if (counter == 0) {
-        counter = list_size;
+
+      if (temp <= list_size) {
+        input = '\n';
+        counter = temp;
       }
-      break;
-    case '\033': /* escape key	*/
-      if (menu_list[0].argument != MENU_WARN) {
-        counter = 0;
+    } else {
+      switch (input) {
+      case ' ':    /* space	*/
+      case '\004': /* ^d, down	*/
+      case KEY_RIGHT:
+      case KEY_DOWN:
+        counter++;
+        if (counter > list_size) {
+          counter = 1;
+        }
+        break;
+      case '\010': /* ^h, backspace*/
+      case '\025': /* ^u, up	*/
+      case 127:    /* ^?, delete	*/
+      case KEY_BACKSPACE:
+      case KEY_LEFT:
+      case KEY_UP:
+        counter--;
+        if (counter == 0) {
+          counter = list_size;
+        }
+        break;
+      case '\033': /* escape key	*/
+        if (menu_list[0].argument != MENU_WARN) {
+          counter = 0;
+        }
+        break;
+      case '\014': /* ^l       	*/
+      case '\022': /* ^r, redraw	*/
+        paint_menu(menu_list, max_width, max_height, list_size, top_offset,
+                   temp_win, off_start, vert_size);
+        break;
+      default:
+        break;
       }
-      break;
-    case '\014': /* ^l       	*/
-    case '\022': /* ^r, redraw	*/
+    }
+
+    if (((list_size - off_start) >= (vert_size - 1)) &&
+        (counter > (off_start + vert_size - 3)) && (off_start > 1)) {
+      if (counter == list_size) {
+        off_start = (list_size - vert_size) + 2;
+      } else {
+        off_start++;
+      }
+
       paint_menu(menu_list, max_width, max_height, list_size, top_offset,
                  temp_win, off_start, vert_size);
-      break;
-    default:
-      break;
-    }
-  }
+    } else if ((list_size != vert_size) &&
+               (counter > (off_start + vert_size - 2))) {
+      if (counter == list_size) {
+        off_start = 2 + (list_size - vert_size);
+      } else if (off_start == 1) {
+        off_start = 3;
+      } else {
+        off_start++;
+      }
 
-  if (((list_size - off_start) >= (vert_size - 1)) &&
-      (counter > (off_start + vert_size - 3)) && (off_start > 1)) {
-    if (counter == list_size) {
-      off_start = (list_size - vert_size) + 2;
-    } else {
-      off_start++;
-    }
+      paint_menu(menu_list, max_width, max_height, list_size, top_offset,
+                 temp_win, off_start, vert_size);
+    } else if (counter < off_start) {
+      if (counter <= 2) {
+        off_start = 1;
+      } else {
+        off_start = counter;
+      }
 
-    paint_menu(menu_list, max_width, max_height, list_size, top_offset,
-               temp_win, off_start, vert_size);
-  } else if ((list_size != vert_size) &&
-             (counter > (off_start + vert_size - 2))) {
-    if (counter == list_size) {
-      off_start = 2 + (list_size - vert_size);
-    } else if (off_start == 1) {
-      off_start = 3;
-    } else {
-      off_start++;
+      paint_menu(menu_list, max_width, max_height, list_size, top_offset,
+                 temp_win, off_start, vert_size);
     }
-
-    paint_menu(menu_list, max_width, max_height, list_size, top_offset,
-               temp_win, off_start, vert_size);
-  } else if (counter < off_start) {
-    if (counter <= 2) {
-      off_start = 1;
-    } else {
-      off_start = counter;
-    }
-
-    paint_menu(menu_list, max_width, max_height, list_size, top_offset,
-               temp_win, off_start, vert_size);
-  }
-} while ((input != '\r') && (input != '\n') && (counter != 0));
+  } while ((input != '\r') && (input != '\n') && (counter != 0));
 
   werase(temp_win);
   wrefresh(temp_win);
   delwin(temp_win);
 
-if ((menu_list[counter].procedure != nullptr) ||
-    (menu_list[counter].iprocedure != nullptr) ||
-    (menu_list[counter].nprocedure != nullptr)) {
-  if (menu_list[counter].argument != -1) {
-    (*menu_list[counter].iprocedure)(menu_list[counter].argument);
-  } else if (menu_list[counter].ptr_argument != nullptr) {
-    (*menu_list[counter].procedure)(menu_list[counter].ptr_argument);
-  } else {
-    (*menu_list[counter].nprocedure)();
+  if ((menu_list[counter].procedure != nullptr) ||
+      (menu_list[counter].iprocedure != nullptr) ||
+      (menu_list[counter].nprocedure != nullptr)) {
+    if (menu_list[counter].argument != -1) {
+      (*menu_list[counter].iprocedure)(menu_list[counter].argument);
+    } else if (menu_list[counter].ptr_argument != nullptr) {
+      (*menu_list[counter].procedure)(menu_list[counter].ptr_argument);
+    } else {
+      (*menu_list[counter].nprocedure)();
+    }
   }
+
+  if (info_window) {
+    paint_info_win();
+  }
+  redraw();
+
+  return counter;
 }
 
-if (info_window) {
-  paint_info_win();
-}
-redraw();
-
-return counter;
-}
-
-static void paint_menu(struct menu_entries menu_list[], int max_width, int max_height,
-                int list_size, int top_offset, WINDOW *menu_win, int off_start,
-                int vert_size) {
+static void paint_menu(struct menu_entries menu_list[], int max_width,
+                       int max_height, int list_size, int top_offset,
+                       WINDOW *menu_win, int off_start, int vert_size) {
   int counter;
   int temp_int;
 
@@ -3850,66 +3894,66 @@ void create_info_window() {
 }
 
 int file_op(int arg) {
-char *string;}
-static int flag;
+  char *string;
+  static int flag;
 
-if (restrict_mode()) {
-  return 0;
-}
-
-if (arg == READ_FILE) {
-  string = get_string(file_read_prompt_str, 1);
-  recv_file = true;
-  tmp_file = resolve_name(string);
-  check_fp();
-  if (tmp_file != string) {
-    free(tmp_file);
-  }
-  free(string);
-} else if (arg == WRITE_FILE) {
-  string = get_string(file_write_prompt_str, 1);
-  tmp_file = resolve_name(string);
-  write_file(tmp_file, 1);
-  if (tmp_file != string) {
-    free(tmp_file);
-  }
-  free(string);
-} else if (arg == SAVE_FILE) {
-  /*
-   |	changes made here should be reflected in finish()
-   */
-
-  flag = (int)(in_file_name != nullptr);
-
-  string = in_file_name;
-  if ((string == nullptr) || (*string == '\0')) {
-    string = get_string(save_file_name_prompt, 1);
-  }
-  if ((string == nullptr) || (*string == '\0')) {
-    wmove(com_win, 0, 0);
-    wprintw(com_win, "%s", file_not_saved_msg);
-    wclrtoeol(com_win);
-    wrefresh(com_win);
-    clear_com_win = true;
+  if (restrict_mode()) {
     return 0;
   }
-  if (flag == 0) {
+
+  if (arg == READ_FILE) {
+    string = get_string(file_read_prompt_str, 1);
+    recv_file = true;
     tmp_file = resolve_name(string);
+    check_fp();
     if (tmp_file != string) {
-      free(string);
-      string = tmp_file;
+      free(tmp_file);
+    }
+    free(string);
+  } else if (arg == WRITE_FILE) {
+    string = get_string(file_write_prompt_str, 1);
+    tmp_file = resolve_name(string);
+    write_file(tmp_file, true);
+    if (tmp_file != string) {
+      free(tmp_file);
+    }
+    free(string);
+  } else if (arg == SAVE_FILE) {
+    /*
+     |	changes made here should be reflected in finish()
+     */
+
+    flag = (int)(in_file_name != nullptr);
+
+    string = in_file_name;
+    if ((string == nullptr) || (*string == '\0')) {
+      string = get_string(save_file_name_prompt, 1);
+    }
+    if ((string == nullptr) || (*string == '\0')) {
+      wmove(com_win, 0, 0);
+      wprintw(com_win, "%s", file_not_saved_msg);
+      wclrtoeol(com_win);
+      wrefresh(com_win);
+      clear_com_win = true;
+      return 0;
+    }
+    if (flag == 0) {
+      tmp_file = resolve_name(string);
+      if (tmp_file != string) {
+        free(string);
+        string = tmp_file;
+      }
+    }
+    if (write_file(string, true) != 0) {
+      in_file_name = string;
+      text_changes = false;
+    } else if (flag == 0) {
+      {
+        free(string);
+      }
     }
   }
-  if (write_file(string, 1) != 0) {
-    in_file_name = string;
-    text_changes = false;
-  } else if (flag == 0) {
-    {
-      free(string);
-    }
-  }
-}
-return 0;
+  return 0;
 }
 
 static void shell_op() {
@@ -3961,22 +4005,22 @@ bool Blank_Line(struct text *test_line) {
   length = 1;
   line = test_line->line;
 
-/*
- |	To handle troff/nroff documents, consider a line with a
- |	period ('.') in the first column to be blank.  To handle mail
- |	messages with included text, consider a line with a '>' blank.
- */
+  /*
+   |	To handle troff/nroff documents, consider a line with a
+   |	period ('.') in the first column to be blank.  To handle mail
+   |	messages with included text, consider a line with a '>' blank.
+   */
 
-if ((*line == '.') || (*line == '>')) {
-  return true;
-}
+  if ((*line == '.') || (*line == '>')) {
+    return true;
+  }
 
-while (((*line == ' ') || (*line == '\t')) &&
-       (length < test_line->line_length)) {
-  length++;
-  line++;
-}
-return length == test_line->line_length;
+  while (((*line == ' ') || (*line == '\t')) &&
+         (length < test_line->line_length)) {
+    length++;
+    line++;
+  }
+  return length == test_line->line_length;
 }
 
 /* format the paragraph according to set margins	*/
@@ -4208,14 +4252,14 @@ static void Format() {
   wrefresh(com_win);
 }
 
-static unsigned char *init_name[3] = {"/usr/share/misc/init.ee", nullptr, ".init.ee"};
+static char *init_name[3] = {"/usr/share/misc/init.ee", nullptr, ".init.ee"};
 
 /* check for init file and read it if it exists	*/
 void ee_init() {
   FILE *init_file;
-  unsigned char *string;
-  unsigned char *str1;
-  unsigned char *str2;
+  char *string;
+  char *str1;
+  char *str2;
   char *home;
   int counter;
   int temp_int;
@@ -4356,7 +4400,7 @@ void dump_ee_conf() {
   FILE *init_file;
   FILE *old_init_file = nullptr;
   char *file_name = ".init.ee";
-  char  const*home_dir = "~/.init.ee";
+  char const *home_dir = "~/.init.ee";
   char buffer[512];
   struct stat buf;
   char *string;
@@ -4546,7 +4590,7 @@ void ispell_op() {
     return;
   }
   close(fd);
-  if (write_file(name, 0)) {
+  if (write_file(name, false) != 0) {
     sprintf(string, "ispell %s", name);
     sh_command(string);
     delete_text();
@@ -4963,16 +5007,16 @@ void modes_op() {
 /* a strchr() look-alike for systems without strchr() */
 char *get_token(char *string, char *substring) {
   char *full;
-static char *sub;
+  static char *sub;
 
-for (sub = substring; (sub != nullptr) && (*sub != '\0'); sub++) {
-  for (full = string; (full != nullptr) && (*full != '\0'); full++) {
-    if (*sub == *full) {
-      return full;
+  for (sub = substring; (sub != nullptr) && (*sub != '\0'); sub++) {
+    for (full = string; (full != nullptr) && (*full != '\0'); full++) {
+      if (*sub == *full) {
+        return full;
+      }
     }
   }
-}
-return nullptr;
+  return nullptr;
 }
 
 /*
@@ -4980,121 +5024,123 @@ return nullptr;
  |	"$HOME/foo", "~/$FOO", etc.
  */
 
-char *resolve_name(char *name) {
+char *resolve_name(const char *name) {
   char long_buffer[1024];
-static char short_buffer[128];
-static char *buffer;
-static char *slash;
-static char *tmp;
-static char *start_of_var;
-static int offset;
-static int index;
-static int counter;
-static struct passwd *user;
+  static char short_buffer[128];
+  static char *buffer;
+  static char *slash;
+  static char *tmp;
+  static char *start_of_var;
+  static int offset;
+  static int index;
+  static int counter;
+  static struct passwd *user;
 
-if (name[0] == '~') {
-  if (name[1] == '/') {
-    index = getuid();
-    user = (struct passwd *)getpwuid(index);
-    slash = name + 1;
+  if (name[0] == '~') {
+    if (name[1] == '/') {
+      index = getuid();
+      user = getpwuid(index);
+      slash = (char *)name + 1;
+    } else {
+      slash = (char *)strchr(name, '/');
+      if (slash == nullptr) {
+        return (char *)name;
+      }
+      *slash = '\0';
+      user = getpwnam((name + 1));
+      *slash = '/';
+    }
+    if (user == nullptr) {
+      return (char *)name;
+    }
+    size_t buf_len = strlen(user->pw_dir) + strlen(slash) + 1;
+    buffer = malloc(buf_len);
+    snprintf(buffer, buf_len, "%s%s", user->pw_dir, slash);
   } else {
-    slash = strchr(name, '/');
-    if (slash == nullptr) {
-      return name;
+    {
+      buffer = (char *)name;
     }
-    *slash = '\0';
-    user = (struct passwd *)getpwnam((name + 1));
-    *slash = '/';
   }
-  if (user == nullptr) {
-    return name;
-  }
-  size_t buf_len = strlen(user->pw_dir) + strlen(slash) + 1;
-  buffer = malloc(buf_len);
-  snprintf(buffer, buf_len, "%s%s", user->pw_dir, slash);
-} else {
-  {
-    buffer = name;
-  }
-}
 
-if (is_in_string(buffer, "$") != nullptr) {
-  tmp = buffer;
-  index = 0;
+  if (strstr(buffer, "$") != nullptr) {
+    tmp = buffer;
+    index = 0;
 
-  while ((*tmp != '\0') && (index < 1024)) {
+    while ((*tmp != '\0') && (index < 1024)) {
 
-    while ((*tmp != '\0') && (*tmp != '$') && (index < 1024)) {
-      long_buffer[index] = *tmp;
-      tmp++;
-      index++;
-    }
-
-    if ((*tmp == '$') && (index < 1024)) {
-      counter = 0;
-      start_of_var = tmp;
-      tmp++;
-      if (*tmp == '{') /* } */ /* bracketed variable name */
-      {
-        tmp++; /* { */
-        while ((*tmp != '\0') && (*tmp != '}') && (counter < 128)) {
-          short_buffer[counter] = *tmp;
-          counter++;
-          tmp++;
-        } /* { */
-        if (*tmp == '}') {
-          tmp++;
-        }
-      } else {
-        while ((*tmp != '\0') && (*tmp != '/') && (*tmp != '$') &&
-               (counter < 128)) {
-          short_buffer[counter] = *tmp;
-          counter++;
-          tmp++;
-        }
+      while ((*tmp != '\0') && (*tmp != '$') && (index < 1024)) {
+        long_buffer[index] = *tmp;
+        tmp++;
+        index++;
       }
-      short_buffer[counter] = '\0';
-      if ((slash = getenv(short_buffer)) != nullptr) {
-        offset = strlen(slash);
-        if ((offset + index) < 1024) {
-          strscpy(&long_buffer[index], slash, 1024 - index);
+
+      if ((*tmp == '$') && (index < 1024)) {
+        counter = 0;
+        start_of_var = tmp;
+        tmp++;
+        if (*tmp == '{') /* } */ /* bracketed variable name */
+        {
+          tmp++; /* { */
+          while ((*tmp != '\0') && (*tmp != '}') && (counter < 128)) {
+            short_buffer[counter] = *tmp;
+            counter++;
+            tmp++;
+          } /* { */
+          if (*tmp == '}') {
+            tmp++;
+          }
+        } else {
+          while ((*tmp != '\0') && (*tmp != '/') && (*tmp != '$') &&
+                 (counter < 128)) {
+            short_buffer[counter] = *tmp;
+            counter++;
+            tmp++;
+          }
         }
-        index += offset;
-      } else {
-        while ((start_of_var != tmp) && (index < 1024)) {
-          long_buffer[index] = *start_of_var;
-          start_of_var++;
-          index++;
+        short_buffer[counter] = '\0';
+        if ((slash = getenv(short_buffer)) != nullptr) {
+          offset = strlen(slash);
+          if ((offset + index) < 1024) {
+            strscpy(&long_buffer[index], slash, 1024 - index);
+          }
+          index += offset;
+        } else {
+          while ((start_of_var != tmp) && (index < 1024)) {
+            long_buffer[index] = *start_of_var;
+            start_of_var++;
+            index++;
+          }
         }
       }
     }
+
+    if (index == 1024) {
+      return buffer;
+    }
+    long_buffer[index] = '\0';
+
+    if (name != buffer) {
+      free(buffer);
+    }
+    size_t buffer_len = index + 1;
+    buffer = malloc(buffer_len);
+    strscpy(buffer, long_buffer, buffer_len);
   }
 
-  if (index == 1024) {
-    return buffer;
-  }
-  long_buffer[index] = '\0';
-
-  if (name != buffer) {
-    free(buffer);
-  }
-  size_t buffer_len = index + 1;
-  buffer = malloc(buffer_len);
-  strscpy(buffer, long_buffer, buffer_len);
-}
-
-return buffer;
+  return buffer;
 }
 
 bool restrict_mode(void) {
-if (!restricted) { return false; }
+  if (!restricted) {
+    return false;
+  }
 
   wmove(com_win, 0, 0);
   wprintw(com_win, "%s", restricted_msg);
   wclrtoeol(com_win);
   wrefresh(com_win);
   clear_com_win = true;
-return true;
+  return true;
 }
 
 /*
@@ -5104,20 +5150,20 @@ return true;
  */
 
 int unique_test(char *string, char *list[]) {
-int counter;}
-static int num_match;
-static int result;
+  int counter;
+  int num_match;
+  int result;
 
-static num_match = 0;
-static counter = 0;
-while (list[counter] != nullptr) {
-  result = (int)(compare(string, list[counter], false));
-  if (result != 0) {
-    num_match++;
+  num_match = 0;
+  counter = 0;
+  while (list[counter] != nullptr) {
+    result = (int)(compare(string, list[counter], false));
+    if (result != 0) {
+      num_match++;
+    }
+    counter++;
   }
-  counter++;
-}
-return num_match;
+  return num_match;
 }
 
 #ifndef NO_CATGETS
@@ -5129,17 +5175,19 @@ return num_match;
 
 char *catgetlocal(int number, char *string) {
   char *temp1;
-static char *temp2;
+  static char *temp2;
 
-static temp1 = catgets(catalog, 1, number, string);
-if (temp1 != string) {
-  size_t t2_len = strlen(temp1) + 1;
-  temp2 = malloc(t2_len);
-  strscpy(temp2, temp1, t2_len);
-  temp1 = temp2;
+  temp1 = catgets(catalog, 1, number, string);
+  if (temp1 != string) {
+    size_t t2_len = strlen(temp1) + 1;
+    temp2 = malloc(t2_len);
+    strscpy(temp2, temp1, t2_len);
+    temp1 = temp2;
+  }
+  return temp1;
 }
-return temp1;
-}
+#else
+char *catgetlocal(int number, char *string) { return string; }
 #endif /* NO_CATGETS */
 
 /*
@@ -5487,23 +5535,4 @@ static void strings_init() {
 #ifndef NO_CATGETS
   catclose(catalog);
 #endif /* NO_CATGETS */
-}
-dif /* NO_CATGETS */
-}
-}
-dif /* NO_CATGETS */
-}
-S */
-}
-S */
-}
-/
-}
-ATGETS */
-}
-S */
-}
-S */
-}
-/
 }
