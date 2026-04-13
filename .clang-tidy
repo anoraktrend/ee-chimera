@@ -1,0 +1,9 @@
+---
+# Enable all checks by default, then selectively disable C++ ones
+Checks: '-*,readability-*,bugprone-*,-modernize-*,-clang-analyzer-cplusplus*'
+WarningsAsErrors: '*'
+# Specifically ignore modernization suggestions that break C code
+CheckOptions:
+  - key: readability-identifier-naming.VariableCase
+    value: snake_case
+
