@@ -3847,14 +3847,48 @@ void paint_info_win() {
       }
     }
   }
+
+  // Construct status line
   wmove(info_win, height - 1, 0);
   if (!nohighlight) {
     wstandout(info_win);
   }
-  waddstr(info_win, separator);
-  wmove(info_win, height - 1, max(0, width - 35));
-  wprintw(info_win, "line %d col %d top %d ", curr_line->line_number, scr_horz,
-          absolute_lin);
+
+  char status_buf[128];
+  snprintf(status_buf, sizeof(status_buf), " %sline %d col %d top %d ",
+           gold ? "GOLD " : "", curr_line->line_number, scr_horz, absolute_lin);
+  int status_len = strlen(status_buf);
+
+  char const *legend = " ^ = Ctrl key  ---- access HELP through menu ---";
+  int legend_len = strlen(legend);
+
+  // Draw legend
+  for (int i = 0; i < width && i < legend_len; i++) {
+    waddch(info_win, legend[i]);
+  }
+
+  // Fill with '=' up to status info
+  int current_x = getcurx(info_win);
+  int status_start_x = width - status_len;
+  if (status_start_x < current_x) {
+    status_start_x = current_x;
+  }
+
+  for (int i = current_x; i < status_start_x; i++) {
+    waddch(info_win, '=');
+  }
+
+  // Draw status info
+  if (status_start_x < width) {
+    waddstr(info_win, status_buf);
+  }
+
+  // Final fill if needed
+  current_x = getcurx(info_win);
+  for (int i = current_x; i < width; i++) {
+    waddch(info_win, '=');
+  }
+
   wstandend(info_win);
   wrefresh(info_win);
 }
