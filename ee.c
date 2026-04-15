@@ -744,16 +744,7 @@ int main(int argc, char *argv[]) {
      |  display line and column information
      */
     if (info_window) {
-      if (!nohighlight) {
-        wstandout(info_win);
-      }
-      wmove(info_win, 5, 0);
-      wprintw(info_win, "%s", separator);
-      wmove(info_win, 5, 5);
-      wprintw(info_win, "line %d col %d lines from top %d ",
-              curr_line->line_number, scr_horz, absolute_lin);
-      wstandend(info_win);
-      wrefresh(info_win);
+      paint_info_win();
     }
 
     wrefresh(text_win);
