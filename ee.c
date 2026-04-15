@@ -3428,6 +3428,7 @@ void set_up_term() {
 
     if (has_colors()) {
       start_color();
+      use_default_colors();
       init_pair(1, COLOR_GREEN, -1);   // comment
       init_pair(2, COLOR_YELLOW, -1);  // string
       init_pair(3, COLOR_CYAN, -1);    // number
