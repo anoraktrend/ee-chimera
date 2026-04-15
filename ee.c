@@ -3428,14 +3428,14 @@ void set_up_term() {
 
     if (has_colors()) {
       start_color();
-      init_pair(1, COLOR_GREEN, COLOR_BLACK);   // comment
-      init_pair(2, COLOR_YELLOW, COLOR_BLACK);  // string
-      init_pair(3, COLOR_CYAN, COLOR_BLACK);    // number
-      init_pair(4, COLOR_YELLOW, COLOR_BLACK);  // type
-      init_pair(5, COLOR_BLUE, COLOR_BLACK);    // function
-      init_pair(6, COLOR_WHITE, COLOR_BLACK);   // variable
-      init_pair(7, COLOR_MAGENTA, COLOR_BLACK); // keyword
-      init_pair(8, COLOR_RED, COLOR_BLACK);     // error/diagnostic
+      init_pair(1, COLOR_GREEN, -1);   // comment
+      init_pair(2, COLOR_YELLOW, -1);  // string
+      init_pair(3, COLOR_CYAN, -1);    // number
+      init_pair(4, COLOR_YELLOW, -1);  // type
+      init_pair(5, COLOR_BLUE, -1);    // function
+      init_pair(6, COLOR_WHITE, -1);   // variable
+      init_pair(7, COLOR_MAGENTA, -1); // keyword
+      init_pair(8, COLOR_RED, -1);     // error/diagnostic
     }
 
     curses_initialized = true;
