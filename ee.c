@@ -653,6 +653,7 @@ char *menu_too_lrg_msg;
 char *more_above_str;
 char *more_below_str;
 char const *separator =
+    " ^ = Ctrl key  ---- access HELP through menu ---"
     "============================================================"
     "===================";
 
@@ -1404,116 +1405,97 @@ static void prev_word() {
 void control() {
   char *string;
 
-  if (in == 1) /* control a	*/
-  {
-    string = get_string(ascii_code_str, 1);
-    if (*string != '\0') {
-      in = atoi(string);
-      wmove(text_win, scr_vert, (scr_horz - horiz_offset));
-      insert(in);
-    }
-    free(string);
-  } else if (in == 2) {
-    { /* control b	*/
-      bottom();
-    }
-  } else if (in == 3) /* control c	*/
-  {
-    command_prompt();
-  } else if (in == 4) {
-    { /* control d	*/
-      down();
-    }
-  } else if (in == 5) {
-    { /* control e	*/
-      search_prompt();
-    }
-  } else if (in == 6) {
-    { /* control f	*/
+  if (gold) {
+    gold = false;
+    if (in == 16) { /* control p - prev buff */
+      /* not implemented yet */
+    } else if (in == 22) { /* control v - forward */
+      /* not implemented yet */
+    } else if (in == 11) { /* control k - und char */
       undel_char();
-    }
-  } else if (in == 7) {
-    { /* control g	*/
-      bol();
-    }
-  } else if (in == 8) {
-    { /* control h	*/
-      delete_char_at_cursor(1);
-    }
-  } else if (in == 9) {
-    { /* control i	*/
-      ;
-    }
-  } else if (in == 10) {
-    { /* control j	*/
-      insert_line(1);
-    }
-  } else if (in == 11) {
-    { /* control k	*/
-      del_char();
-    }
-  } else if (in == 12) {
-    { /* control l	*/
-      left(1);
-    }
-  } else if (in == 13) {
-    { /* control m	*/
-      insert_line(1);
-    }
-  } else if (in == 14) {
-    { /* control n	*/
-      move_rel('d', max(5, (last_line - 5)));
-    }
-  } else if (in == 15) {
-    { /* control o	*/
-      eol();
-    }
-  } else if (in == 16) {
-    { /* control p	*/
-      move_rel('u', max(5, (last_line - 5)));
-    }
-  } else if (in == 17) {
-    { /* control q	*/
-      ;
-    }
-  } else if (in == 18) {
-    { /* control r	*/
-      right(1);
-    }
-  } else if (in == 19) {
-    { /* control s	*/
-      ;
-    }
-  } else if (in == 20) {
-    { /* control t	*/
-      top();
-    }
-  } else if (in == 21) {
-    { /* control u	*/
-      up();
-    }
-  } else if (in == 22) {
-    { /* control v	*/
-      undel_word();
-    }
-  } else if (in == 23) {
-    { /* control w	*/
-      del_word();
-    }
-  } else if (in == 24) {
-    { /* control x	*/
-      search(1);
-    }
-  } else if (in == 25) {
-    { /* control y	*/
-      del_line();
-    }
-  } else if (in == 26) {
-    { /* control z	*/
+    } else if (in == 21) { /* control u - mark */
+      /* not implemented yet */
+    } else if (in == 26) { /* control z - repl prmpt */
+      search_prompt();
+    } else if (in == 24) { /* control x - fmt parag */
+      Format();
+    } else if (in == 18) { /* control r - reverse */
+      /* not implemented yet */
+    } else if (in == 12) { /* control l - und line */
       undel_line();
+    } else if (in == 6) { /* control f - srch prmpt */
+      search_prompt();
+    } else if (in == 2) { /* control b - append */
+      /* not implemented yet */
+    } else if (in == 23) { /* control w - und word */
+      undel_word();
+    } else if (in == 3) { /* control c - clear line */
+      bol();
+      del_line();
+    } else if (in == 4) { /* control d - prefix */
+      /* not implemented yet */
+    } else if (in == 14) { /* control n - next buff */
+      /* not implemented yet */
+    } else if (in == 25) { /* control y - prev word */
+      prev_word();
     }
-  } else if (in == 27) /* control [ (escape)	*/
-  {
+    if (info_window) {
+      paint_info_win();
+    }
+    return;
+  }
+
+  if (in == 7) { /* control g - GOLD */
+    gold = true;
+    if (info_window) {
+      paint_info_win();
+    }
+    return;
+  }
+
+  if (in == 1) { /* control a - adv char */
+    right(1);
+  } else if (in == 2) { /* control b - end of txt */
+    bottom();
+  } else if (in == 3) { /* control c - copy */
+    /* not implemented yet */
+  } else if (in == 4) { /* control d - beg of lin */
+    bol();
+  } else if (in == 5) { /* control e - command */
+    command_prompt();
+  } else if (in == 6) { /* control f - search */
+    search(1);
+  } else if (in == 8) { /* control h - backspace */
+    delete_char_at_cursor(1);
+  } else if (in == 10 || in == 13) { /* control j/m - carrg rtrn */
+    insert_line(1);
+  } else if (in == 11) { /* control k - del char */
+    del_char();
+  } else if (in == 12) { /* control l - del line */
+    del_line();
+  } else if (in == 14) { /* control n - next page */
+    move_rel('d', max(5, (last_line - 5)));
+  } else if (in == 15) { /* control o - end of lin */
+    eol();
+  } else if (in == 16) { /* control p - prev page */
+    move_rel('u', max(5, (last_line - 5)));
+  } else if (in == 18) { /* control r - redraw */
+    redraw();
+  } else if (in == 20) { /* control t - top of txt */
+    top();
+  } else if (in == 21) { /* control u - mark */
+    /* not implemented yet */
+  } else if (in == 22) { /* control v - paste */
+    /* not implemented yet */
+  } else if (in == 23) { /* control w - del word */
+    del_word();
+  } else if (in == 24) { /* control x - cut */
+    /* not implemented yet */
+  } else if (in == 25) { /* control y - adv word */
+    adv_word();
+  } else if (in == 26) { /* control z - replace */
+    /* not implemented yet */
+  } else if (in == 27) { /* control [ (escape) */
     menu_op(main_menu);
   }
 }
@@ -3442,10 +3424,16 @@ void set_up_term() {
     curses_initialized = true;
   }
 
-  if (((LINES > 15) && (COLS >= 80)) && info_window) {
-    {
-      last_line = LINES - 8;
+  int info_win_height = 0;
+  if (info_window) {
+    if (LINES < 10) {
+      info_win_height = 2;
+    } else if (LINES < 15) {
+      info_win_height = 4;
+    } else {
+      info_win_height = 6;
     }
+    last_line = LINES - (info_win_height + 2);
   } else {
     info_window = false;
     last_line = LINES - 2;
@@ -3459,7 +3447,7 @@ void set_up_term() {
   if (!info_window) {
     text_win = newwin((LINES - 1), COLS, 0, 0);
   } else {
-    text_win = newwin((LINES - 7), COLS, 6, 0);
+    text_win = newwin((LINES - (info_win_height + 1)), COLS, info_win_height, 0);
   }
   keypad(text_win, true);
   idlok(text_win, true);
@@ -3469,7 +3457,7 @@ void set_up_term() {
   idlok(help_win, true);
   if (info_window) {
     info_type = CONTROL_KEYS;
-    info_win = newwin(6, COLS, 0, 0);
+    info_win = newwin(info_win_height, COLS, 0, 0);
     werase(info_win);
     paint_info_win();
   }
@@ -3836,27 +3824,37 @@ void help() {
 
 void paint_info_win() {
   int counter;
+  int height, width;
 
   if (!info_window) {
     return;
   }
 
+  getmaxyx(info_win, height, width);
+
   werase(info_win);
-  for (counter = 0; counter < 5; counter++) {
+  for (counter = 0; counter < height - 1; counter++) {
     wmove(info_win, counter, 0);
     wclrtoeol(info_win);
     if (info_type == CONTROL_KEYS) {
-      waddstr(info_win, (emacs_keys_mode) ? emacs_control_keys[counter]
-                                          : control_keys[counter]);
+      if (counter < 5) {
+        waddstr(info_win, (emacs_keys_mode) ? emacs_control_keys[counter]
+                                           : control_keys[counter]);
+      }
     } else if (info_type == COMMANDS) {
-      waddstr(info_win, command_strings[counter]);
+      if (counter < 5) {
+        waddstr(info_win, command_strings[counter]);
+      }
     }
   }
-  wmove(info_win, 5, 0);
+  wmove(info_win, height - 1, 0);
   if (!nohighlight) {
     wstandout(info_win);
   }
   waddstr(info_win, separator);
+  wmove(info_win, height - 1, max(0, width - 35));
+  wprintw(info_win, "line %d col %d top %d ", curr_line->line_number, scr_horz,
+          absolute_lin);
   wstandend(info_win);
   wrefresh(info_win);
 }
@@ -3879,17 +3877,25 @@ void no_info_window() {
 }
 
 void create_info_window() {
+  int info_win_height = 0;
   if (info_window) {
     return;
   }
-  last_line = LINES - 8;
+  if (LINES < 10) {
+    info_win_height = 2;
+  } else if (LINES < 15) {
+    info_win_height = 4;
+  } else {
+    info_win_height = 6;
+  }
+  last_line = LINES - (info_win_height + 2);
   delwin(text_win);
-  text_win = newwin((LINES - 7), COLS, 6, 0);
+  text_win = newwin((LINES - (info_win_height + 1)), COLS, info_win_height, 0);
   keypad(text_win, true);
   idlok(text_win, true);
   werase(text_win);
   info_window = true;
-  info_win = newwin(6, COLS, 0, 0);
+  info_win = newwin(info_win_height, COLS, 0, 0);
   werase(info_win);
   info_type = CONTROL_KEYS;
   midscreen(min(scr_vert, last_line), point);
@@ -5289,16 +5295,11 @@ static void strings_init() {
                                   "                                  ");
   help_text[21] = catgetlocal(56, "+# :go to line #  -i :no info window  -e : "
                                   "don't expand tabs  -h :no highlight");
-  control_keys[0] = catgetlocal(57, "^[ (escape) menu  ^e search prompt  ^y "
-                                    "delete line    ^u up     ^p prev page  ");
-  control_keys[1] = catgetlocal(58, "^a ascii code     ^x search         ^z "
-                                    "undelete line  ^d down   ^n next page  ");
-  control_keys[2] = catgetlocal(59, "^b bottom of text ^g begin of line  ^w "
-                                    "delete word    ^l left                 ");
-  control_keys[3] = catgetlocal(60, "^t top of text    ^o end of line    ^v "
-                                    "undelete word  ^r right                ");
-  control_keys[4] = catgetlocal(61, "^c command        ^k delete char    ^f "
-                                    "undelete char      ESC-Enter: exit ee  ");
+  control_keys[0] = catgetlocal(57, "Esc  menu       ^P   prev page  ^K   del char   ^O   end of lin ^Y   adv word   ^G^P prev buff  ^G^V forward    ^J   carrg rtrn");
+  control_keys[1] = catgetlocal(58, "^E   command    ^L   del line   ^G^K und char   ^U   mark       ^Z   replace    ^G^X fmt parag  ^G^R reverse    ^H   backspace");
+  control_keys[2] = catgetlocal(59, "^T   top of txt ^G^L und line   ^F   search     ^X   cut        ^G^Z repl prmpt ^G^X fmt parag  ^G^B append     ^G   GOLD");
+  control_keys[3] = catgetlocal(60, "^B   end of txt ^W   del word   ^G^F srch prmpt ^C   copy       ^G^C clear line ^A   adv char   ^G^D prefix");
+  control_keys[4] = catgetlocal(61, "^N   next page  ^G^W und word   ^D   beg of lin ^V   paste      ^G^N next buff  ^G^Y prev word  ^R   redraw");
   command_strings[0] =
       catgetlocal(62, "help : get help info  |file  : print file name         "
                       "|line : print line # ");

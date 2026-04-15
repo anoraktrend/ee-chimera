@@ -8,6 +8,9 @@ The editor 'ee' (easy editor) is intended to be a simple, easy to use terminal-b
 * **Transparent Background:** Changed the background color to be transparent, so it uses the terminal's default background color.
 * **Syntax Highlighting Fix:** Fixed an issue where the first page of a file was not properly highlighted on startup. Added an initial reparse call when a file is loaded.
 * **LSP File Path Fix:** Corrected the file path passed to the LSP server when opening or changing files.
+* **AEE-style Hint Window:** Updated the information window at the top of the screen to match the layout and content of `aee`.
+* **AEE Key Bindings:** Remapped control keys to match `aee` conventions, including support for the `GOLD` key (`^G`).
+* **Dynamic Info Window:** The information window now automatically expands or shrinks based on the terminal height, providing more space for text on smaller terminals.
 
 ## Usage
 
