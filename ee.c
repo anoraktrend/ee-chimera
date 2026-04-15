@@ -733,10 +733,9 @@ int main(int argc, char *argv[]) {
   counter = 0;
 
   lsp_start();
-  if (top_of_stack != nullptr) {
-    lsp_open_file((const char *)top_of_stack->name);
+  if (in_file_name != nullptr) {
+    lsp_open_file((const char *)in_file_name);
   }
-  reparse();
 
   while (edit) {
     lsp_poll();
@@ -797,8 +796,8 @@ int main(int argc, char *argv[]) {
 
     if (text_changes) {
       reparse();
-      if (top_of_stack != nullptr) {
-        lsp_change_file((const char *)top_of_stack->name);
+      if (in_file_name != nullptr) {
+        lsp_change_file((const char *)in_file_name);
       }
       text_changes = false;
     }
@@ -2455,6 +2454,7 @@ void check_fp() {
     curr_line = tmp_line;
   }
   point = curr_line->line;
+  reparse();
   draw_screen();
   if (input_file) {
     input_file = false;

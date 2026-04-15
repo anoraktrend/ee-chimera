@@ -6,6 +6,8 @@ The editor 'ee' (easy editor) is intended to be a simple, easy to use terminal-b
 
 * **LSP Integration Fix:** Redirected `stderr` to `/dev/null` for the `clangd` child process. This prevents a "Transport error: Input/output error" from being printed to the terminal every time `ee` is closed, resulting in a cleaner exit.
 * **Transparent Background:** Changed the background color to be transparent, so it uses the terminal's default background color.
+* **Syntax Highlighting Fix:** Fixed an issue where the first page of a file was not properly highlighted on startup. Added an initial reparse call when a file is loaded.
+* **LSP File Path Fix:** Corrected the file path passed to the LSP server when opening or changing files.
 
 ## Usage
 
