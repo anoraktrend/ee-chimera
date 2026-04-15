@@ -11,6 +11,8 @@ The editor 'ee' (easy editor) is intended to be a simple, easy to use terminal-b
 * **AEE-style Hint Window:** Updated the information window at the top of the screen to match the layout and content of `aee`.
 * **AEE Key Bindings:** Remapped control keys to match `aee` conventions, including support for the `GOLD` key (`^G`).
 * **Dynamic Info Window:** The information window now automatically expands or shrinks based on the terminal height, providing more space for text on smaller terminals.
+* **New Editing Operations:** Implemented Mark (`^U`), Copy (`^C`), Cut (`^X`), Paste (`^V`), and Replace (`^Z`) features.
+* **Performance Optimizations:** Replaced manual byte-shifting loops with optimized `memmove` and `memcpy` calls for core buffer operations (`insert`, `delete_char_at_cursor`, `del_line`).
 
 ## Usage
 

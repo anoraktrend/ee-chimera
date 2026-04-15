@@ -127,6 +127,10 @@ static struct text *srch_line;  /* temporary pointer for search routine */
 
 static struct files *top_of_stack = nullptr;
 
+static struct text *mark_line = nullptr;
+static int mark_position = 0;
+static char *clipboard_buf = nullptr;
+
 const TSLanguage *tree_sitter_c(void);
 
 // Tree-Sitter Globals
@@ -840,12 +844,8 @@ static void insert(int character) {
     counter++;
     temp++;
   }
-  temp++; /* increase length of line by one	*/
-  while (point < temp) {
-    temp2 = temp - 1;
-    *temp = *temp2; /* shift characters over by one		*/
-    temp--;
-  }
+  /* memmove safely handles overlapping memory regions */
+  memmove(point + 1, point, temp - point);
   *point = character; /* insert new character			*/
   wclrtoeol(text_win);
   if (isprint((unsigned char)character) == 0) /* check for TAB character*/
@@ -930,12 +930,8 @@ void delete_char_at_cursor(int disp) {
       }
       d_char[del_width] = '\0';
     }
-    while (temp_pos <= curr_line->line_length) {
-      temp_pos++;
-      *tp = *temp2;
-      tp++;
-      temp2++;
-    }
+    size_t shift_len = curr_line->line_length - position + 1;
+    memmove(tp, temp2, shift_len);
     if ((scr_horz < horiz_offset) && (horiz_offset > 0)) {
       horiz_offset -= 8;
       midscreen(scr_vert, point);
@@ -1405,9 +1401,9 @@ void control() {
     } else if (in == 11) { /* control k - und char */
       undel_char();
     } else if (in == 21) { /* control u - mark */
-      /* not implemented yet */
+      set_mark();
     } else if (in == 26) { /* control z - repl prmpt */
-      search_prompt();
+      replace_prompt();
     } else if (in == 24) { /* control x - fmt parag */
       Format();
     } else if (in == 18) { /* control r - reverse */
@@ -1449,7 +1445,7 @@ void control() {
   } else if (in == 2) { /* control b - end of txt */
     bottom();
   } else if (in == 3) { /* control c - copy */
-    /* not implemented yet */
+    copy_region(false);
   } else if (in == 4) { /* control d - beg of lin */
     bol();
   } else if (in == 5) { /* control e - command */
@@ -1475,17 +1471,17 @@ void control() {
   } else if (in == 20) { /* control t - top of txt */
     top();
   } else if (in == 21) { /* control u - mark */
-    /* not implemented yet */
+    set_mark();
   } else if (in == 22) { /* control v - paste */
-    /* not implemented yet */
+    paste_region();
   } else if (in == 23) { /* control w - del word */
     del_word();
   } else if (in == 24) { /* control x - cut */
-    /* not implemented yet */
+    copy_region(true);
   } else if (in == 25) { /* control y - adv word */
     adv_word();
   } else if (in == 26) { /* control z - replace */
-    /* not implemented yet */
+    replace_prompt();
   } else if (in == 27) { /* control [ (escape) */
     menu_op(main_menu);
   }
@@ -2881,6 +2877,184 @@ static void search_prompt() {
   search(1);
 }
 
+/* set a mark for copying or cutting text */
+void set_mark() {
+  mark_line = curr_line;
+  mark_position = position;
+  wmove(com_win, 0, 0);
+  wclrtoeol(com_win);
+  wprintw(com_win, "Mark set.");
+  wrefresh(com_win);
+  clear_com_win = true;
+}
+
+/* copy or cut the region between the mark and the cursor */
+void copy_region(bool cut) {
+  if (!mark_line) {
+    wmove(com_win, 0, 0);
+    wclrtoeol(com_win);
+    wprintw(com_win, "No mark set.");
+    wrefresh(com_win);
+    clear_com_win = true;
+    return;
+  }
+  /* Verify the mark is still valid (hasn't been deleted) */
+  bool valid = false;
+  struct text *chk = first_line;
+  while (chk) {
+    if (chk == mark_line) {
+      valid = true;
+      break;
+    }
+    chk = chk->next_line;
+  }
+  if (!valid) {
+    mark_line = nullptr;
+    wmove(com_win, 0, 0);
+    wclrtoeol(com_win);
+    wprintw(com_win, "Mark invalid (line deleted).");
+    wrefresh(com_win);
+    clear_com_win = true;
+    return;
+  }
+  struct text *start_line = mark_line;
+  int start_pos = mark_position;
+  struct text *end_line = curr_line;
+  int end_pos = position;
+  /* Ensure start comes before end */
+  bool swap = false;
+  if (start_line->line_number > end_line->line_number) {
+    swap = true;
+  } else if (start_line->line_number == end_line->line_number &&
+             start_pos > end_pos) {
+    swap = true;
+  }
+  if (swap) {
+    start_line = curr_line;
+    start_pos = position;
+    end_line = mark_line;
+    end_pos = mark_position;
+  }
+  /* Calculate buffer size */
+  int est_size = 0;
+  struct text *tl = start_line;
+  while (tl && tl != end_line) {
+    est_size += tl->line_length;
+    tl = tl->next_line;
+  }
+  est_size += end_line->line_length;
+  if (clipboard_buf)
+    free(clipboard_buf);
+  clipboard_buf = malloc(est_size + 1);
+  char *cb_ptr = clipboard_buf;
+  /* Copy into clipboard buffer */
+  tl = start_line;
+  if (start_line == end_line) {
+    memcpy(cb_ptr, start_line->line + start_pos - 1, end_pos - start_pos);
+    cb_ptr += (end_pos - start_pos);
+  } else {
+    memcpy(cb_ptr, start_line->line + start_pos - 1,
+           start_line->line_length - start_pos);
+    cb_ptr += (start_line->line_length - start_pos);
+    *cb_ptr++ = '\n';
+    tl = tl->next_line;
+    while (tl && tl != end_line) {
+      memcpy(cb_ptr, tl->line, tl->line_length - 1);
+      cb_ptr += (tl->line_length - 1);
+      *cb_ptr++ = '\n';
+      tl = tl->next_line;
+    }
+    memcpy(cb_ptr, end_line->line, end_pos - 1);
+    cb_ptr += (end_pos - 1);
+  }
+  *cb_ptr = '\0';
+  wmove(com_win, 0, 0);
+  wclrtoeol(com_win);
+  wprintw(com_win, cut ? "Region cut." : "Region copied.");
+  wrefresh(com_win);
+  clear_com_win = true;
+  /* If cutting, simulate backspacing to delete the region */
+  if (cut) {
+    /* Move cursor to end of the region if it isn't already */
+    while (curr_line != end_line || position != end_pos) {
+      if (curr_line->line_number < end_line->line_number ||
+          (curr_line == end_line && position < end_pos)) {
+        right(1);
+      } else {
+        left(1);
+      }
+    }
+    int del_len = cb_ptr - clipboard_buf;
+    for (int i = 0; i < del_len; i++) {
+      in = 8; /* ASCII backspace */
+      delete_char_at_cursor(1);
+    }
+  }
+  mark_line = nullptr;
+}
+
+/* paste text from the clipboard */
+void paste_region() {
+  if (!clipboard_buf) {
+    wmove(com_win, 0, 0);
+    wclrtoeol(com_win);
+    wprintw(com_win, "Clipboard empty.");
+    wrefresh(com_win);
+    clear_com_win = true;
+    return;
+  }
+  char *ptr = clipboard_buf;
+  while (*ptr) {
+    if (*ptr == '\n') {
+      insert_line(1);
+    } else {
+      insert(*ptr);
+    }
+    ptr++;
+  }
+}
+
+/* basic find and replace */
+void replace_prompt() {
+  char *search_term = get_string("Replace: ", 0);
+  if (!search_term || *search_term == '\0')
+    return;
+  char *replace_term = get_string("With: ", 0);
+  if (srch_str != nullptr)
+    free(srch_str);
+  if (u_srch_str != nullptr)
+    free(u_srch_str);
+  srch_str = (unsigned char *)search_term;
+  srch_3 = srch_str;
+  srch_1 = u_srch_str = malloc(strlen((char *)srch_str) + 1);
+  while (*srch_3 != '\0') {
+    *srch_1 = toupper(*srch_3);
+    srch_1++;
+    srch_3++;
+  }
+  *srch_1 = '\0';
+  int found = search(1);
+  if (found) {
+    int len = strlen((char *)search_term);
+    for (int i = 0; i < len; i++) {
+      in = 8;
+      delete_char_at_cursor(1);
+    }
+    if (replace_term) {
+      for (size_t i = 0; i < strlen((char *)replace_term); i++) {
+        insert(replace_term[i]);
+      }
+    }
+    wmove(com_win, 0, 0);
+    wclrtoeol(com_win);
+    wprintw(com_win, "Replaced 1 occurrence.");
+    wrefresh(com_win);
+    clear_com_win = true;
+  }
+  if (replace_term)
+    free(replace_term);
+}
+
 /* delete current character	*/
 void del_char() {
   in = 8;                                /* backspace */
@@ -3029,25 +3203,14 @@ void undel_word() {
 
 /* delete from cursor to end of line	*/
 void del_line() {
-  unsigned char *dl1;
-  unsigned char *dl2;
-  int tposit;
-
   if (d_line != nullptr) {
     free(d_line);
   }
   d_line = malloc(curr_line->line_length);
-  dl1 = d_line;
-  dl2 = point;
-  tposit = position;
-  while (tposit < curr_line->line_length) {
-    *dl1 = *dl2;
-    dl1++;
-    dl2++;
-    tposit++;
-  }
-  dlt_line->line_length = 1 + tposit - position;
-  *dl1 = '\0';
+  size_t copy_len = curr_line->line_length - position;
+  memcpy(d_line, point, copy_len);
+  d_line[copy_len] = '\0';
+  dlt_line->line_length = 1 + copy_len;
   *point = '\0';
   curr_line->line_length = position;
   wclrtoeol(text_win);
