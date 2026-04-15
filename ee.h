@@ -168,4 +168,10 @@ static ssize_t strscpy(char *dest, const char *src, size_t count);
 static void paint_menu(struct menu_entries menu_list[], int max_width,
                        int max_height, int list_size, int top_offset,
                        WINDOW *menu_win, int off_start, int vert_size);
+
+/* | New Operations */
+void set_mark(void);
+void copy_region(bool cut);
+void paste_region(void);
+void replace_prompt(void);
 #endif /* EE_H */
