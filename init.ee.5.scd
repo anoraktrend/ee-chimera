@@ -55,13 +55,16 @@ The file consists of one command per line. Commands are case-insensitive.
 	Print **string** to the message line during initialization.
 
 *BIND* **key** **command**
-	Bind a base control key (e.g., *BIND ^A top_of_txt*).
+	Bind a base control key. **key** can be a control character (e.g., *^A*),
+	a modified key (e.g., *M-a* for Alt-a, *W-x* for Super-x, *C-c* for Ctrl-c,
+	*S-u* for Shift-u), or a literal code (e.g., *code:513*).
 
 *GBIND* **key** **command**
-	Bind a GOLD mode key (triggered after *^G*).
+	Bind a GOLD mode key (triggered after *^G*). Supports the same formats
+	as *BIND*.
 
 *EBIND* **key** **command**
-	Bind a key in Emacs mode.
+	Bind a key in Emacs mode. Supports the same formats as *BIND*.
 
 # BINDABLE COMMANDS
 
@@ -81,7 +84,9 @@ INFO
 NOCASE
 RIGHTMARGIN 78
 BIND ^A top_of_txt
-BIND ^E bottom_of_txt
+BIND M-f next_page
+BIND W-q menu
+BIND code:262 bol  # Bind Home key if it sends code 262
 GBIND ^X format
 ```
 

@@ -394,9 +394,9 @@ int search_wrapper(int arg);
 int menu_op_wrapper(struct menu_entries *m);
 void no_op(void);
 typedef void (*control_handler)(void);
-extern control_handler base_control_table[];
-extern control_handler gold_control_table[];
-extern control_handler emacs_control_table[];
+extern control_handler base_control_table[1024];
+extern control_handler gold_control_table[1024];
+extern control_handler emacs_control_table[1024];
 #ifdef HAS_LSP
 static void lsp_change_file(const char *filename);
 static void lsp_start(void);

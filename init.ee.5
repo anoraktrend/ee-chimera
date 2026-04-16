@@ -87,17 +87,20 @@ Print \fB\fRstring\fB\fR to the message line during initialization.\&
 .RE
 \fBBIND\fR \fB\fRkey\fB\fR \fB\fRcommand\fB\fR
 .RS 4
-Bind a base control key (e.\&g.\&, \fBBIND \(haA top_of_txt\fR).\&
+Bind a base control key.\& \fB\fRkey\fB\fR can be a control character (e.\&g.\&, \fB\(haA\fR),
+a modified key (e.\&g.\&, \fBM-a\fR for Alt-a, \fBW-x\fR for Super-x, \fBC-c\fR for Ctrl-c,
+\fBS-u\fR for Shift-u), or a literal code (e.\&g.\&, \fBcode:513\fR).\&
 .PP
 .RE
 \fBGBIND\fR \fB\fRkey\fB\fR \fB\fRcommand\fB\fR
 .RS 4
-Bind a GOLD mode key (triggered after \fB\(haG\fR).\&
+Bind a GOLD mode key (triggered after \fB\(haG\fR).\& Supports the same formats
+as \fBBIND\fR.\&
 .PP
 .RE
 \fBEBIND\fR \fB\fRkey\fB\fR \fB\fRcommand\fB\fR
 .RS 4
-Bind a key in Emacs mode.\&
+Bind a key in Emacs mode.\& Supports the same formats as \fBBIND\fR.\&
 .PP
 .RE
 .SH BINDABLE COMMANDS
@@ -119,7 +122,9 @@ INFO
 NOCASE
 RIGHTMARGIN 78
 BIND ^A top_of_txt
-BIND ^E bottom_of_txt
+BIND M-f next_page
+BIND W-q menu
+BIND code:262 bol  # Bind Home key if it sends code 262
 GBIND ^X format
 .fi
 .RE
