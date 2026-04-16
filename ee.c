@@ -150,6 +150,25 @@ TSParser *ts_parser = nullptr;
 TSTree *ts_tree = nullptr;
 #endif
 
+#ifdef HAS_LIBEDIT
+EditLine *el = nullptr;
+History *hist = nullptr;
+
+static char *libedit_prompt(EditLine *e) {
+  (void)e;
+  return (char *)"";
+}
+
+static int libedit_getc(EditLine *e, wchar_t *cp) {
+  (void)e;
+  int c = wgetch(com_win);
+  if (c == ERR)
+    return 0;
+  *cp = (wchar_t)c;
+  return 1;
+}
+#endif
+
 // LSP Globals
 #ifdef HAS_LSP
 int lsp_to_child[2];
@@ -2197,6 +2216,67 @@ int get_string_len(char *line, int offset, int column) {
 /* read string from input on command line */
 char *get_string(char *prompt, int advance) {
   char *string;
+#ifdef HAS_LIBEDIT
+  if (el != nullptr) {
+    const char *line;
+    int count;
+
+    // Position cursor at the bottom
+    wmove(com_win, 0, 0);
+    wclrtoeol(com_win);
+    waddstr(com_win, prompt);
+    wrefresh(com_win);
+
+    // libedit needs to know the prompt. We've already printed it via ncurses
+    // but we can also set it in libedit if we want it to handle redraws.
+    // For now, we'll just use el_gets.
+    
+    // We need to temporarily leave curses mode so libedit can use the terminal
+    def_prog_mode();
+    endwin();
+    
+    // Print prompt again since we just did endwin
+    printf("\r%s", prompt);
+    fflush(stdout);
+
+    line = el_gets(el, &count);
+    
+    reset_prog_mode();
+    refresh();
+    touchwin(text_win);
+    wrefresh(text_win);
+
+    if (line != nullptr && count > 0) {
+      string = malloc(count + 1);
+      strscpy(string, line, count + 1);
+      // Remove trailing newline
+      char *nl = strchr(string, '\n');
+      if (nl) *nl = '\0';
+      nl = strchr(string, '\r');
+      if (nl) *nl = '\0';
+
+      if (string[0] != '\0') {
+        HistEvent ev;
+        history(hist, &ev, H_ENTER, string);
+      }
+
+      char *ptr = string;
+      if (((*ptr == ' ') || (*ptr == 9)) && (advance != 0)) {
+        ptr = next_word(ptr);
+        size_t new_len = strlen(ptr) + 1;
+        char *new_str = malloc(new_len);
+        strscpy(new_str, ptr, new_len);
+        free(string);
+        string = new_str;
+      }
+      return string;
+    }
+    size_t empty_len = 1;
+    char *empty_str = malloc(empty_len);
+    empty_str[0] = '\0';
+    return empty_str;
+  }
+#endif
   char *tmp_string;
   char *nam_str;
   char *g_point;
@@ -2220,7 +2300,7 @@ char *get_string(char *prompt, int advance) {
     esc_flag = 0;
     in = wgetch(com_win);
     if (in == -1) {
-      exit(0);
+      edit_abort(0);
     }
     if (((in == 8) || (in == 127) || (in == KEY_BACKSPACE)) && (g_pos > 0)) {
       tmp_int = g_horz;
@@ -2242,7 +2322,7 @@ char *get_string(char *prompt, int advance) {
         esc_flag = 1;
         in = wgetch(com_win);
         if (in == -1) {
-          exit(0);
+          edit_abort(0);
         }
       }
       *nam_str = in;
@@ -2776,6 +2856,16 @@ void cleanup() {
   if (lsp_pid != -1) {
     kill(lsp_pid, SIGTERM);
     lsp_pid = -1;
+  }
+#endif
+#ifdef HAS_LIBEDIT
+  if (el != nullptr) {
+    el_end(el);
+    el = nullptr;
+  }
+  if (hist != nullptr) {
+    history_end(hist);
+    hist = nullptr;
   }
 #endif
 }
@@ -4761,6 +4851,14 @@ static void Format() {
 static char *init_name[3] = {"/usr/share/misc/init.ee", nullptr, ".init.ee"};
 
 /* check for init file and read it if it exists	*/
+static void update_libedit_mode() {
+#ifdef HAS_LIBEDIT
+  if (el != nullptr) {
+    el_set(el, EL_EDITOR, emacs_keys_mode ? "emacs" : "vi");
+  }
+#endif
+}
+
 void ee_init() {
   FILE *init_file;
   char *string;
@@ -4871,10 +4969,12 @@ void ee_init() {
         } else if (compare(str1, EMACS_string, false)) {
           {
             emacs_keys_mode = true;
+            update_libedit_mode();
           }
         } else if (compare(str1, NOEMACS_string, false)) {
           {
             emacs_keys_mode = false;
+            update_libedit_mode();
           }
         } else if (compare(str1, chinese_cmd, false)) {
           ee_chinese = true;
@@ -4919,6 +5019,21 @@ void ee_init() {
       eightbit = true;
     }
   }
+
+#ifdef HAS_LIBEDIT
+  el = el_init("ee", stdin, stdout, stderr);
+  el_set(el, EL_PROMPT, libedit_prompt);
+  el_set(el, EL_EDITOR, emacs_keys_mode ? "emacs" : "vi");
+  el_set(el, EL_GETCFN, libedit_getc);
+#ifdef EL_WIDECHAR
+  el_set(el, EL_WIDECHAR, 1);
+#endif
+
+  hist = history_init();
+  HistEvent ev;
+  history(hist, &ev, H_SETSIZE, 100);
+  el_set(el, EL_HIST, history, hist);
+#endif
 }
 
 /*
@@ -5526,6 +5641,7 @@ void modes_op() {
       break;
     case 7:
       emacs_keys_mode = !emacs_keys_mode;
+      update_libedit_mode();
       resize_info_win();
       break;
     case 8:

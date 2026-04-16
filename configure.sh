@@ -12,6 +12,7 @@ ENABLE_MENU=${ENABLE_MENU:-1}
 ENABLE_SPELL=${ENABLE_SPELL:-1}
 ENABLE_AUTOFORMAT=${ENABLE_AUTOFORMAT:-1}
 ENABLE_INFO_WIN=${ENABLE_INFO_WIN:-1}
+ENABLE_LIBEDIT=${ENABLE_LIBEDIT:-1}
 
 CFLAGS="-std=c23 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600"
 LIBS=""
@@ -71,6 +72,17 @@ if [ "$ENABLE_ICU" = "1" ]; then
     else
         echo "ICU not found, disabling"
         ENABLE_ICU=0
+    fi
+fi
+
+if [ "$ENABLE_LIBEDIT" = "1" ]; then
+    if pkg-config --exists libedit; then
+        CFLAGS="$CFLAGS $(pkg-config --cflags libedit) -DHAS_LIBEDIT"
+        LIBS="$LIBS $(pkg-config --libs libedit)"
+        echo "Enabled libedit"
+    else
+        echo "libedit not found, disabling"
+        ENABLE_LIBEDIT=0
     fi
 fi
 

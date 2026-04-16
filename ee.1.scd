@@ -93,6 +93,15 @@ escapes.
 *^J* (Return)
 	Insert a newline.
 
+## Command-Line Enhancement (Optional)
+
+If *ee* is built with *libedit* support, the command prompt (*^E*) and other string
+inputs provide:
+
+- Persistent command history (accessible via *Up*/*Down* arrows).
+- Improved line editing (standard Emacs or Vi bindings, matching the editor mode).
+- Home/End and other navigation keys.
+
 ## Command and Menu
 
 *^E* (Command)
