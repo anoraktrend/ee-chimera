@@ -42,6 +42,9 @@
 #ifdef HAS_TREESITTER
 #include <tree_sitter/api.h>
 #endif
+#ifdef HAS_LIBEDIT
+#include <histedit.h>
+#endif
 #include <unistd.h>
 
 #ifndef nullptr
@@ -263,6 +266,11 @@ extern struct diagnostic *diagnostics_list;
 #ifdef HAS_TREESITTER
 extern TSParser *ts_parser;
 extern TSTree *ts_tree;
+#endif
+
+#ifdef HAS_LIBEDIT
+extern EditLine *el;
+extern History *hist;
 #endif
 
 extern struct menu_entries modes_menu[];
