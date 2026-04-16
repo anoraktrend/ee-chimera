@@ -69,19 +69,19 @@ static char *version = "@(#) ee, version " EE_VERSION " $Revision: 1.104 $";
 
 // Correct prototypes for menu callbacks which expect int (*)(int) or int
 // (*)(struct menu_entries *)
-static int quit_wrapper(int arg) {
+int quit_wrapper(int arg) {
   quit(arg);
   return 0;
 }
-static int file_op_wrapper(int arg) {
+int file_op_wrapper(int arg) {
   file_op(arg);
   return 0;
 }
-static int search_wrapper(int arg) {
+int search_wrapper(int arg) {
   search(arg);
   return 0;
 }
-static int menu_op_wrapper(struct menu_entries *m) { return menu_op(m); }
+int menu_op_wrapper(struct menu_entries *m) { return menu_op(m); }
 
 /**
  * strscpy - Copy a C-string into a sized buffer
@@ -119,41 +119,47 @@ static ssize_t strscpy(char *dest, const char *src, size_t count) {
 }
 
 // Tree-Sitter C language
-static struct text *first_line; /* first line of current buffer		*/
-static struct text *dlt_line;   /* structure for info on deleted line	*/
-static struct text *curr_line;  /* current line cursor is on		*/
-static struct text *tmp_line;   /* temporary line pointer		*/
-static struct text *srch_line;  /* temporary pointer for search routine */
+struct text *first_line; /* first line of current buffer		*/
+struct text *dlt_line;   /* structure for info on deleted line	*/
+struct text *curr_line;  /* current line cursor is on		*/
+struct text *tmp_line;   /* temporary line pointer		*/
+struct text *srch_line;  /* temporary pointer for search routine */
 
-static struct files *top_of_stack = nullptr;
+struct files *top_of_stack = nullptr;
 
-static struct text *mark_line = nullptr;
-static int mark_position = 0;
-static char *clipboard_buf = nullptr;
+struct text *mark_line = nullptr;
+int mark_position = 0;
+char *clipboard_buf = nullptr;
 
-static int char_len_table[256] = {
+int char_len_table[256] = {
     [0 ... 8] = 2,   [9] = -1,        [10 ... 31] = 2, [32 ... 126] = 1,
     [127] = 2,       [128 ... 255] = 1};
 
-static void update_line_numbers(struct text *line, int delta);
-static struct text *find_next_recursive(struct text *line, int count,
+void update_line_numbers(struct text *line, int delta);
+struct text *find_next_recursive(struct text *line, int count,
                                         int *actual_count);
-static struct text *find_prev_recursive(struct text *line, int count,
+struct text *find_prev_recursive(struct text *line, int count,
                                         int *actual_count);
+void cleanup(void);
 
+#ifdef HAS_TREESITTER
 const TSLanguage *tree_sitter_c(void);
 
 // Tree-Sitter Globals
 TSParser *ts_parser = nullptr;
-static TSTree *ts_tree = nullptr;
+TSTree *ts_tree = nullptr;
+#endif
 
 // LSP Globals
-static int lsp_to_child[2];
-static int lsp_from_child[2];
-static pid_t lsp_pid = -1;
+#ifdef HAS_LSP
+int lsp_to_child[2];
+int lsp_from_child[2];
+pid_t lsp_pid = -1;
 
-static struct diagnostic *diagnostics_list = nullptr;
+struct diagnostic *diagnostics_list = nullptr;
+#endif
 
+#ifdef HAS_TREESITTER
 const char *ts_read_buffer(void *payload, uint32_t byte_index, TSPoint position,
                            uint32_t *bytes_read) {
   struct text *line = (struct text *)payload;
@@ -197,7 +203,9 @@ static void reparse() {
   }
   ts_tree = ts_parser_parse(ts_parser, nullptr, input);
 }
+#endif
 
+#ifdef HAS_LSP
 static void lsp_send(const char *msg);
 
 static void lsp_start() {
@@ -333,129 +341,92 @@ static void lsp_poll() {
     }
   }
 }
-
-constexpr int MAX_IN_STRING = 513;
-constexpr int MAX_WORD_LEN = 150;
-constexpr int MIN_LINE_ALLOC = 10;
-constexpr int MAX_CMD_LEN = 256;
-constexpr int TAB_WIDTH = 8;
-constexpr int ASCII_DEL = 127;
-constexpr int ASCII_BACKSPACE = 8;
-constexpr int OFFSET_STEP = 8;
-constexpr int BUFFER_SIZE = 512;
-constexpr int G_STRING_BUF = 512;
-constexpr int MAX_HELP_LINES = 23;
-constexpr int MAX_EMACS_HELP_LINES = 22;
-constexpr int MAX_INIT_STRINGS = 22;
-constexpr int MAX_ALPHA_CHAR = 36;
-
-#ifndef NO_CATGETS
-
-static nl_catd catalog;
-#endif /* NO_CATGETS */
-
-#ifndef SIGCHLD
-#define SIGCHLD SIGCLD
 #endif
 
-enum { TAB = 9 };
-#define max(a, b)                                                              \
-  ({                                                                           \
-    typeof(a) _a = (a);                                                        \
-    typeof(b) _b = (b);                                                        \
-    (_a & -(_a > _b)) | (_b & -(_b >= _a));                                    \
-  })
-#define min(a, b)                                                              \
-  ({                                                                           \
-    typeof(a) _a = (a);                                                        \
-    typeof(b) _b = (b);                                                        \
-    (_a & -(_a < _b)) | (_b & -(_b <= _a));                                    \
-  })
+#ifdef HAS_ICU
+UResourceBundle *icu_bundle = nullptr;
+#endif
 
-/*
- |	defines for type of data to show in info window
- */
-
-enum { CONTROL_KEYS = 1, COMMANDS = 2 };
-
-static int d_wrd_len;    /* length of deleted word		*/
-static int position;     /* offset in bytes from begin of line	*/
-static int scr_pos;      /* horizontal position			*/
-static int scr_vert;     /* vertical position on screen		*/
-static int scr_horz;     /* horizontal position on screen	*/
-static int absolute_lin; /* number of lines from top		*/
-static int tmp_vert, tmp_horz;
-static bool input_file;           /* indicate to read input file		*/
-static bool recv_file;            /* indicate reading a file		*/
-static bool edit;                 /* continue executing while true	*/
-static bool gold;                 /* 'gold' function key pressed		*/
-static int fildes;                /* file descriptor			*/
-static bool case_sen;             /* case sensitive search flag		*/
-static int last_line;             /* last line for text display		*/
-static int last_col;              /* last column for text display		*/
-static int horiz_offset = 0;      /* offset from left edge of text	*/
-static bool clear_com_win;        /* flag to indicate com_win needs clearing */
-static bool text_changes = false; /* indicate changes have been made to text */
-static int get_fd;                /* file descriptor for reading a file	*/
-static bool info_window = true;   /* flag to indicate if help window visible */
-static int info_type =
+int d_wrd_len;    /* length of deleted word		*/
+int position;     /* offset in bytes from begin of line	*/
+int scr_pos;      /* horizontal position			*/
+int scr_vert;     /* vertical position on screen		*/
+int scr_horz;     /* horizontal position on screen	*/
+int absolute_lin; /* number of lines from top		*/
+int tmp_vert, tmp_horz;
+bool input_file;           /* indicate to read input file		*/
+bool recv_file;            /* indicate reading a file		*/
+bool edit;                 /* continue executing while true	*/
+bool gold;                 /* 'gold' function key pressed		*/
+int fildes;                /* file descriptor			*/
+bool case_sen;             /* case sensitive search flag		*/
+int last_line;             /* last line for text display		*/
+int last_col;              /* last column for text display		*/
+int horiz_offset = 0;      /* offset from left edge of text	*/
+bool clear_com_win;        /* flag to indicate com_win needs clearing */
+bool text_changes = false; /* indicate changes have been made to text */
+int get_fd;                /* file descriptor for reading a file	*/
+bool info_window = true;   /* flag to indicate if help window visible */
+int info_type =
     CONTROL_KEYS;               /* flag to indicate type of info to display */
-static bool expand_tabs = true; /* flag for expanding tabs		*/
-static int right_margin = 0;    /* the right margin 			*/
-static bool observ_margins = true; /* flag for whether margins are observed */
-static int shell_fork;
-static int temp_stdin;           /* temporary storage for stdin		*/
-static int temp_stdout;          /* temp storage for stdout descriptor	*/
-static int temp_stderr;          /* temp storage for stderr descriptor	*/
-static int pipe_out[2];          /* pipe file desc for output		*/
-static int pipe_in[2];           /* pipe file descriptors for input	*/
-static bool out_pipe;            /* flag that info is piped out		*/
-static bool in_pipe;             /* flag that info is piped in		*/
-static bool formatted = false;   /* flag indicating paragraph formatted	*/
-static bool auto_format = false; /* flag for auto_format mode		*/
-static bool restricted = false;  /* flag to indicate restricted mode	*/
-static bool nohighlight = false; /* turns off highlighting		*/
-static bool eightbit = true;     /* eight bit character flag		*/
-static int local_LINES = 0;      /* copy of LINES, to detect when win resizes */
-static int local_COLS = 0;       /* copy of COLS, to detect when win resizes  */
-static bool curses_initialized =
+bool expand_tabs = true; /* flag for expanding tabs		*/
+int right_margin = 0;    /* the right margin 			*/
+bool observ_margins = true; /* flag for whether margins are observed */
+int shell_fork;
+int temp_stdin;           /* temporary storage for stdin		*/
+int temp_stdout;          /* temp storage for stdout descriptor	*/
+int temp_stderr;          /* temp storage for stderr descriptor	*/
+int pipe_out[2];          /* pipe file desc for output		*/
+int pipe_in[2];           /* pipe file descriptors for input	*/
+bool out_pipe;            /* flag that info is piped out		*/
+bool in_pipe;             /* flag that info is piped in		*/
+bool formatted = false;   /* flag indicating paragraph formatted	*/
+#ifdef HAS_AUTOFORMAT
+bool auto_format = false; /* flag for auto_format mode		*/
+#endif
+bool restricted = false;  /* flag to indicate restricted mode	*/
+bool nohighlight = false; /* turns off highlighting		*/
+bool eightbit = true;     /* eight bit character flag		*/
+int local_LINES = 0;      /* copy of LINES, to detect when win resizes */
+int local_COLS = 0;       /* copy of COLS, to detect when win resizes  */
+bool curses_initialized =
     false; /* flag indicating if curses has been started*/
-static bool emacs_keys_mode =
+bool emacs_keys_mode =
     false;                      /* mode for if emacs key binings are used    */
-static bool ee_chinese = false; /* allows handling of multi-byte characters  */
+bool ee_chinese = false; /* allows handling of multi-byte characters  */
                                 /* by checking for high bit in a byte the    */
                                 /* code recognizes a two-byte character      */
                                 /* sequence				     */
 
-static unsigned char *point;      /* points to current position in line	*/
-static unsigned char *srch_str;   /* pointer for search string		*/
-static unsigned char *u_srch_str; /* pointer to non-case sensitive search	*/
-static unsigned char *srch_1;     /* pointer to start of suspect string	*/
-static unsigned char *srch_2;     /* pointer to next character of string	*/
-static unsigned char *srch_3;
-static char *in_file_name = nullptr; /* name of input file		*/
-static char *tmp_file;        /* temporary file name			*/
-static unsigned char *d_char; /* deleted character			*/
-static unsigned char *d_word; /* deleted word				*/
-static unsigned char *d_line; /* deleted line				*/
-static unsigned char
+unsigned char *point;      /* points to current position in line	*/
+unsigned char *srch_str;   /* pointer for search string		*/
+unsigned char *u_srch_str; /* pointer to non-case sensitive search	*/
+unsigned char *srch_1;     /* pointer to start of suspect string	*/
+unsigned char *srch_2;     /* pointer to next character of string	*/
+unsigned char *srch_3;
+char *in_file_name = nullptr; /* name of input file		*/
+char *tmp_file;        /* temporary file name			*/
+unsigned char *d_char; /* deleted character			*/
+unsigned char *d_word; /* deleted word				*/
+unsigned char *d_line; /* deleted line				*/
+unsigned char
     in_string[MAX_IN_STRING]; /* buffer for reading a file		*/
-static char *print_command = (char *)"lpr"; /* string to use for the print command 	*/
-static char *start_at_line = nullptr; /* move to this line at start of session*/
-static int in; /* input character			*/
+char *print_command = (char *)"lpr"; /* string to use for the print command 	*/
+char *start_at_line = nullptr; /* move to this line at start of session*/
+int in; /* input character			*/
 
-static FILE *temp_fp;    /* temporary file pointer		*/
-static FILE *bit_bucket; /* file pointer to /dev/null		*/
+FILE *temp_fp;    /* temporary file pointer		*/
+FILE *bit_bucket; /* file pointer to /dev/null		*/
 
-static char *table[] = {"^@", "^A", "^B", "^C", "^D",  "^E", "^F", "^G",
+char *table[] = {"^@", "^A", "^B", "^C", "^D",  "^E", "^F", "^G",
                         "^H", "\t", "^J", "^K", "^L",  "^M", "^N", "^O",
                         "^P", "^Q", "^R", "^S", "^T",  "^U", "^V", "^W",
                         "^X", "^Y", "^Z", "^[", "^\\", "^]", "^^", "^_"};
 
-static WINDOW *com_win;
-static WINDOW *text_win;
-static WINDOW *help_win;
-static WINDOW *info_win;
+WINDOW *com_win;
+WINDOW *text_win;
+WINDOW *help_win;
+WINDOW *info_win;
 
 /*
  |	The following structure allows menu items to be flexibly declared.
@@ -501,8 +472,6 @@ struct menu_entries modes_menu[] = {
 
 char *mode_strings[11];
 
-enum { NUM_MODES_ITEMS = 10 };
-
 struct menu_entries config_dump_menu[] = {
     {"", nullptr, nullptr, nullptr, nullptr, 0},
     {"", nullptr, nullptr, nullptr, nullptr, -1},
@@ -514,8 +483,6 @@ struct menu_entries leave_menu[] = {
     {"", nullptr, nullptr, nullptr, finish, -1},
     {"", nullptr, nullptr, quit_wrapper, nullptr, 1},
     {nullptr, nullptr, nullptr, nullptr, nullptr, -1}};
-
-enum { READ_FILE = 1, WRITE_FILE = 2, SAVE_FILE = 3 };
 
 struct menu_entries file_menu[] = {
     {"", nullptr, nullptr, nullptr, nullptr, -1},
@@ -561,17 +528,13 @@ struct menu_entries main_menu[] = {
 
 char *help_text[23];
 char *control_keys[5];
-
+char *gold_control_keys[5];
 char *emacs_help_text[22];
 char *emacs_control_keys[5];
 
 char *command_strings[5];
 char *commands[32];
 char *init_strings[22];
-
-enum { MENU_WARN = 1 };
-
-enum { max_alpha_char = 36 };
 
 /*
  |	Declarations for strings for localization
@@ -659,6 +622,9 @@ char *EIGHTBIT;
 char *NOEIGHTBIT;
 char *EMACS_string;
 char *NOEMACS_string;
+char *BIND;
+char *GBIND;
+char *EBIND;
 char *conf_dump_err_msg;
 char *conf_dump_success_msg;
 char *conf_not_saved_msg;
@@ -684,7 +650,6 @@ static void control_newline(void) { insert_line(1); }
 static void control_next_page(void) { move_rel('d', max(5, (last_line - 5))); }
 static void control_prev_page(void) { move_rel('u', max(5, (last_line - 5))); }
 static void control_cut(void) { copy_region(true); }
-static void control_main_menu(void) { menu_op(main_menu); }
 static void control_left(void) { left(1); }
 static void control_down(void) { down(); }
 static void control_up(void) { up(); }
@@ -699,16 +664,122 @@ static void control_insert_ascii(void) {
 }
 static void gold_search_reverse(void) { search_reverse(1); }
 static void gold_append(void) { append_region(false); }
+
+static void control_esc(void);
+static void control_gold_esc(void);
+static void gold_toggle(void);
+
+struct command_map commands_table[] = {
+    {"right", (void (*)(void))right, "move right one character", "right"},
+    {"left", (void (*)(void))left, "move left one character", "left"},
+    {"up", (void (*)(void))up, "move up one line", "up"},
+    {"down", (void (*)(void))down, "move down one line", "down"},
+    {"bol", bol, "move to beginning of line", "beg of lin"},
+    {"eol", eol, "move to end of line", "end of lin"},
+    {"next_page", (void (*)(void))nextline, "move to next page", "next page"},
+    {"prev_page", (void (*)(void))prevline, "move to previous page", "prev page"},
+    {"top_of_txt", top, "move to top of text", "top of txt"},
+    {"bottom_of_txt", bottom, "move to bottom of text", "end of txt"},
+    {"del_char", del_char, "delete character at cursor", "del char"},
+    {"del_word", del_word, "delete word at cursor", "del word"},
+    {"del_line", del_line, "delete current line", "del line"},
+    {"und_char", undel_char, "undelete last character", "und char"},
+    {"und_word", undel_word, "undelete last word", "und word"},
+    {"und_line", undel_line, "undelete last line", "und line"},
+    {"copy", (void (*)(void))control_copy, "copy region to clipboard", "copy"},
+    {"cut", (void (*)(void))control_cut, "cut region to clipboard", "cut"},
+    {"paste", paste_region, "paste clipboard at cursor", "paste"},
+    {"append", gold_append, "append region to clipboard", "append"},
+    {"mark", set_mark, "set mark for region", "mark"},
+    {"search", (void (*)(void))control_search, "search for string", "search"},
+    {"search_reverse", gold_search_reverse, "search reverse", "reverse"},
+    {"search_prompt", search_prompt, "prompt for search string", "srch prmpt"},
+    {"replace_prompt", replace_prompt, "prompt for replace string",
+     "repl prmpt"},
+    {"command_prompt", command_prompt, "enter command mode", "command"},
+    {"gold_toggle", (void (*)(void))gold_toggle, "toggle GOLD mode", "GOLD"},
+    {"redraw", redraw, "redraw the screen", "redraw"},
+#ifdef HAS_HELP
+    {"help", help, "display help information", "help"},
+#endif
+    {"menu", (void (*)(void))control_esc, "open main menu", "menu"},
+#ifdef HAS_AUTOFORMAT
+    {"format", Format, "format paragraph", "fmt parag"},
+#endif
+    {"adv_word", adv_word, "advance to next word", "adv word"},
+    {"prev_word", prev_word, "move to previous word", "prev word"},
+    {"newline", (void (*)(void))control_newline, "insert newline", "newline"},
+    {"backspace", (void (*)(void))control_backspace, "delete previous character", "backspace"},
+    {nullptr, nullptr, nullptr, nullptr}};
+
+void bind_key(const char *key_str, const char *cmd_name, int table_type) {
+  int key_idx = -1;
+  if (key_str[0] == '^' && key_str[1] != '\0') {
+    if (key_str[1] >= 'A' && key_str[1] <= 'Z') {
+      key_idx = key_str[1] - 'A' + 1;
+    } else if (key_str[1] >= 'a' && key_str[1] <= 'z') {
+      key_idx = key_str[1] - 'a' + 1;
+    } else if (key_str[1] == '[') {
+      key_idx = 27;
+    } else if (key_str[1] == '\\') {
+      key_idx = 28;
+    } else if (key_str[1] == ']') {
+      key_idx = 29;
+    } else if (key_str[1] == '^') {
+      key_idx = 30;
+    } else if (key_str[1] == '_') {
+      key_idx = 31;
+    } else if (key_str[1] == '@') {
+      key_idx = 0;
+    }
+  }
+
+  if (key_idx == -1)
+    return;
+
+  control_handler handler = no_op;
+  for (int i = 0; commands_table[i].name != nullptr; i++) {
+    if (strcmp(commands_table[i].name, cmd_name) == 0) {
+      handler = (control_handler)commands_table[i].handler;
+      break;
+    }
+  }
+
+  control_handler *target_table;
+  if (table_type == GOLD_TABLE) {
+    target_table = gold_control_table;
+  } else if (table_type == EMACS_TABLE) {
+    target_table = emacs_control_table;
+  } else {
+    target_table = base_control_table;
+  }
+
+  target_table[key_idx] = handler;
+}
+
+static void control_esc(void) {
+#ifdef HAS_MENU
+  menu_op(main_menu);
+#endif
+}
+
+static void control_gold_esc(void) {
+#ifdef HAS_MENU
+  menu_op(main_menu);
+#else
+  finish();
+#endif
+}
+
 static void gold_toggle(void) {
   gold = true;
-  if (info_window)
-    paint_info_win();
+  if (info_window) {
+    resize_info_win();
+  }
 }
-static void no_op(void) {}
+void no_op(void) {}
 
-typedef void (*control_handler)(void);
-
-static control_handler base_control_table[32] = {
+control_handler base_control_table[32] = {
     [1] = control_right,      [2] = bottom,
     [3] = control_copy,       [4] = bol,
     [5] = command_prompt,     [6] = control_search,
@@ -720,17 +791,18 @@ static control_handler base_control_table[32] = {
     [20] = top,               [21] = set_mark,
     [22] = paste_region,      [23] = del_word,
     [24] = control_cut,       [25] = adv_word,
-    [26] = replace_prompt,    [27] = control_main_menu};
+    [26] = replace_prompt,    [27] = control_esc};
 
-static control_handler gold_control_table[32] = {
+control_handler gold_control_table[32] = {
     [2] = gold_append,        [3] = del_line,
     [6] = search_prompt,      [11] = undel_char,
     [12] = undel_line,        [18] = gold_search_reverse,
     [21] = set_mark,          [22] = control_search,
     [23] = undel_word,        [24] = Format,
-    [25] = prev_word,         [26] = replace_prompt};
+    [25] = prev_word,         [26] = replace_prompt,
+    [27] = control_gold_esc};
 
-static control_handler emacs_control_table[32] = {
+control_handler emacs_control_table[32] = {
     [1] = bol,                [2] = control_left,
     [3] = command_prompt,     [4] = del_char,
     [5] = eol,                [6] = control_right,
@@ -742,7 +814,7 @@ static control_handler emacs_control_table[32] = {
     [20] = top,               [21] = bottom,
     [22] = control_next_page, [23] = del_word,
     [24] = control_search,    [25] = search_prompt,
-    [26] = adv_word,          [27] = control_main_menu};
+    [26] = adv_word,          [27] = control_esc};
 
 /* beginning of main program          */
 int main(int argc, char *argv[]) {
@@ -817,22 +889,47 @@ int main(int argc, char *argv[]) {
 
   counter = 0;
 
+#ifdef HAS_LSP
   lsp_start();
   if (in_file_name != nullptr) {
     lsp_open_file((const char *)in_file_name);
   }
+#endif
 
   last_redraw_time = time(nullptr);
   while (edit) {
+#ifdef HAS_LSP
     lsp_poll();
+#endif
     /*
      |  display line and column information
      */
     if (info_window) {
+#ifdef HAS_INFO_WIN
       paint_info_win();
+#endif
     }
 
     wrefresh(text_win);
+#ifdef HAS_NCURSESW
+    wint_t wch;
+    int res = wget_wch(text_win, &wch);
+    if (res == ERR) {
+      if (errno == EINTR)
+        continue;
+      time_t now = time(nullptr);
+      if (now - last_redraw_time >= 5) {
+        redraw();
+        last_redraw_time = now;
+      }
+      continue;
+    }
+    if (res == KEY_CODE_YES) {
+      in = wch;
+    } else {
+      in = wch;
+    }
+#else
     in = wgetch(text_win);
     if (in == -1) {
       if (errno == EINTR)
@@ -847,6 +944,7 @@ int main(int argc, char *argv[]) {
        * -1. With wtimeout, it returns ERR on timeout. */
       continue;
     }
+#endif
     last_redraw_time = time(nullptr);
 
     resize_check();
@@ -881,10 +979,14 @@ int main(int argc, char *argv[]) {
     }
 
     if (text_changes) {
+#ifdef HAS_TREESITTER
       reparse();
+#endif
+#ifdef HAS_LSP
       if (in_file_name != nullptr) {
         lsp_change_file((const char *)in_file_name);
       }
+#endif
       text_changes = false;
     }
   }
@@ -910,32 +1012,51 @@ static void insert(int character) {
     for (; counter > 0; counter--) {
       insert(' ');
     }
+#ifdef HAS_AUTOFORMAT
     if (auto_format) {
       Auto_Format();
     }
+#endif
     return;
   }
-  text_changes = true;
-  if ((curr_line->max_length - curr_line->line_length) < 5) {
-    point = resiz_line(10, curr_line, position);
+
+#ifdef HAS_ICU
+  uint8_t utf8_buf[4];
+  int32_t utf8_len = 0;
+  UErrorCode status = U_ZERO_ERROR;
+  U8_APPEND(utf8_buf, utf8_len, 4, character, status);
+  if (U_FAILURE(status)) {
+    utf8_buf[0] = (uint8_t)character;
+    utf8_len = 1;
   }
-  curr_line->line_length++;
-  size_t move_len = curr_line->line_length - position;
-  /* memmove safely handles overlapping memory regions */
-  memmove(point + 1, point, move_len);
-  *point = character; /* insert new character			*/
+#else
+  unsigned char utf8_buf[1] = {(unsigned char)character};
+  int utf8_len = 1;
+#endif
+
+  for (int i = 0; i < utf8_len; i++) {
+    int c = utf8_buf[i];
+    text_changes = true;
+    if ((curr_line->max_length - curr_line->line_length) < 5) {
+      point = resiz_line(10, curr_line, position);
+    }
+    curr_line->line_length++;
+    size_t move_len = curr_line->line_length - position;
+    /* memmove safely handles overlapping memory regions */
+    memmove(point + 1, point, move_len);
+    *point = c; /* insert new character			*/
+    if (isprint((unsigned char)c) == 0) /* check for TAB character*/
+    {
+      scr_pos = scr_horz += out_char(text_win, c, scr_horz);
+    } else {
+      waddch(text_win, (unsigned char)c);
+      scr_pos = ++scr_horz;
+    }
+    point++;
+    position++;
+  }
+
   wclrtoeol(text_win);
-  if (isprint((unsigned char)character) == 0) /* check for TAB character*/
-  {
-    scr_pos = scr_horz += out_char(text_win, character, scr_horz);
-    point++;
-    position++;
-  } else {
-    waddch(text_win, (unsigned char)character);
-    scr_pos = ++scr_horz;
-    point++;
-    position++;
-  }
 
   if (observ_margins && (right_margin < scr_pos)) {
     counter = position;
@@ -960,16 +1081,19 @@ static void insert(int character) {
     midscreen(scr_vert, point);
   }
 
+#ifdef HAS_AUTOFORMAT
   if (auto_format && (character == ' ') && (!formatted)) {
     Auto_Format();
-  } else if ((character != ' ') && (character != '\t')) {
+  } else 
+#endif
+  if ((character != ' ') && (character != '\t')) {
     formatted = false;
   }
 
   draw_line(scr_vert, scr_horz, curr_line, position);
 }
 
-static void update_line_numbers(struct text *line, int delta) {
+void update_line_numbers(struct text *line, int delta) {
   if (line == nullptr)
     return;
   line->line_number += delta;
@@ -989,9 +1113,16 @@ void delete_char_at_cursor(int disp) {
   {
     text_changes = true;
     temp2 = tp = point;
+#ifdef HAS_ICU
+    int32_t i = (int32_t)(point - curr_line->line);
+    U8_BACK_1(curr_line->line, 0, i);
+    unsigned char *new_p = curr_line->line + i;
+    del_width = (int)(point - new_p);
+#else
     if (ee_chinese && (position >= 2) && (*(point - 2) > 127)) {
       del_width = 2;
     }
+#endif
     tp -= del_width;
     point -= del_width;
     position -= del_width;
@@ -1009,8 +1140,7 @@ void delete_char_at_cursor(int disp) {
           *d_char = *point; /* save deleted character  */
         }
       } else {
-        d_char[0] = *point;
-        d_char[1] = *(point + 1);
+        memcpy(d_char, point, del_width);
       }
       d_char[del_width] = '\0';
     }
@@ -1062,11 +1192,39 @@ void delete_char_at_cursor(int disp) {
   formatted = false;
 }
 
+#ifdef HAS_ICU
+static int u_char_width(UChar32 c, int column) {
+  if (c == '\t')
+    return tabshift(column);
+  if (c < 32)
+    return 2; // Control chars like ^A
+  if (c == 127)
+    return 2; // ^?
+  // Basic check for wide characters (e.g. Emoji, CJK)
+  // In a full implementation, we'd use u_getIntPropertyValue(c, UCHAR_EAST_ASIAN_WIDTH)
+  // or similar to return 2 for Wide/Fullwidth.
+  return 1;
+}
+
+static int scanline_step(unsigned char *ptr, const unsigned char *pos,
+                         int temp) {
+  if (ptr >= pos)
+    return temp;
+  int32_t i = 0;
+  UChar32 c;
+  U8_NEXT(ptr, i, (int32_t)(pos - ptr), c);
+  if (c < 0) { // Invalid UTF-8
+    return scanline_step(ptr + 1, pos, temp + 1);
+  }
+  return scanline_step(ptr + i, pos, temp + u_char_width(c, temp));
+}
+#else
 static int scanline_step(unsigned char *ptr, const unsigned char *pos, int temp) {
   if (ptr >= pos)
     return temp;
   return scanline_step(ptr + 1, pos, temp + len_char(*ptr, temp));
 }
+#endif
 
 /* find the proper horizontal position for the pointer */
 void scanline(const unsigned char *pos) {
@@ -1106,20 +1264,28 @@ int out_char(WINDOW *window, int character, int column) {
     }
     return i1;
   }
-  if ((character >= '\0') && (character < ' ')) {
+  if ((character >= 0) && (character < 32)) {
     string = table[character];
-  } else if ((character < 0) || (character >= 127)) {
-    if (character == 127) {
-      {
-        string = "^?";
-      }
-    } else if (!eightbit) {
+  } else if (character == 127) {
+    string = "^?";
+  } else if (character > 127) {
+#ifdef HAS_ICU
+    if (!eightbit) {
+      sprintf(string2, "<%d>", character);
+      string = string2;
+    } else {
+      sprintf(string2, "<%02X>", character & 0xFF);
+      string = string2;
+    }
+#else
+    if (!eightbit) {
       sprintf(string2, "<%d>", (character < 0) ? (character + 256) : character);
       string = string2;
     } else {
       waddch(window, (unsigned char)character);
       return 1;
     }
+#endif
   } else {
     waddch(window, (unsigned char)character);
     return 1;
@@ -1148,6 +1314,7 @@ int len_char(int character, int column) {
   return (is_tab * tabshift(column)) + (!is_tab * len);
 }
 
+#ifdef HAS_TREESITTER
 static int get_node_attribute(int line, int col) {
   if (ts_tree == nullptr) {
     return A_NORMAL;
@@ -1189,7 +1356,9 @@ static int get_node_attribute(int line, int col) {
 
   return A_NORMAL;
 }
+#endif
 
+#ifdef HAS_LSP
 void lsp_change_file(const char *filename) {
   if (filename == nullptr) {
     return;
@@ -1244,6 +1413,7 @@ void lsp_change_file(const char *filename) {
   free(escaped);
   free(msg);
 }
+#endif
 
 /* redraw line from current position */
 static void draw_line(int vertical, int horiz, struct text *line, int t_pos) {
@@ -1277,8 +1447,12 @@ static void draw_line(int vertical, int horiz, struct text *line, int t_pos) {
   wmove(text_win, row, column);
   wclrtoeol(text_win);
   while ((posit < line->line_length) && (column <= last_col)) {
-    int attr = get_node_attribute(line_no, posit - 1);
+    int attr = A_NORMAL;
+#ifdef HAS_TREESITTER
+    attr = get_node_attribute(line_no, posit - 1);
+#endif
 
+#ifdef HAS_LSP
     // Check diagnostics
     struct diagnostic const *diag = diagnostics_list;
     while (diag != nullptr) {
@@ -1288,8 +1462,39 @@ static void draw_line(int vertical, int horiz, struct text *line, int t_pos) {
       }
       diag = diag->next;
     }
+#endif
 
     wattron(text_win, attr);
+#ifdef HAS_ICU
+    int32_t i = 0;
+    UChar32 c;
+    U8_NEXT(temp, i, (int32_t)(line->line_length - posit + 1), c);
+    if (c < 0) {
+      // Invalid UTF-8, just print byte
+      abs_column++;
+      column++;
+      waddch(text_win, *temp);
+      posit++;
+      temp++;
+    } else {
+      if (c == '\t' || c < 32 || c == 127) {
+        column += u_char_width(c, abs_column);
+        abs_column += out_char(text_win, (int)c, abs_column);
+      } else {
+        // Use addwstr or similar for better support, but waddch with UTF-8
+        // bytes also works in ncursesw if we add them correctly.
+        // For simplicity, we add bytes one by one but they form a sequence.
+        for (int j = 0; j < i; j++) {
+          waddch(text_win, temp[j]);
+        }
+        int w = u_char_width(c, abs_column);
+        abs_column += w;
+        column += w;
+      }
+      posit += i;
+      temp += i;
+    }
+#else
     if (isprint(*temp) == 0) {
       column += len_char(*temp, abs_column);
       abs_column += out_char(text_win, *temp, abs_column);
@@ -1298,9 +1503,10 @@ static void draw_line(int vertical, int horiz, struct text *line, int t_pos) {
       column++;
       waddch(text_win, *temp);
     }
-    wattroff(text_win, attr);
     posit++;
     temp++;
+#endif
+    wattroff(text_win, attr);
   }
   if (column < last_col) {
     wclrtoeol(text_win);
@@ -1438,6 +1644,7 @@ static void prev_word() {
 
 /* use control for commands		*/
 void control() {
+  bool was_gold = gold;
   control_handler const *table_ptr =
       gold ? gold_control_table : base_control_table;
   int index = in * ((in >= 0) & (in <= 31));
@@ -1445,6 +1652,9 @@ void control() {
   handler = handler ? handler : no_op;
 
   gold = false;
+  if (was_gold && info_window) {
+    resize_info_win();
+  }
   handler();
 }
 
@@ -1531,12 +1741,20 @@ void prevline() {
 void left(int disp) {
   if (point != curr_line->line) /* if not at begin of line	*/
   {
+#ifdef HAS_ICU
+    int32_t i = (int32_t)(point - curr_line->line);
+    U8_BACK_1(curr_line->line, 0, i);
+    unsigned char *new_p = curr_line->line + i;
+    position -= (point - new_p);
+    point = new_p;
+#else
     if (ee_chinese && (position >= 2) && (*(point - 2) > 127)) {
       point--;
       position--;
     }
     point--;
     position--;
+#endif
     scanline(point);
     wmove(text_win, scr_vert, (scr_horz - horiz_offset));
     scr_pos = scr_horz;
@@ -1559,6 +1777,13 @@ void left(int disp) {
 /* move right one character	*/
 void right(int disp) {
   if (position < curr_line->line_length) {
+#ifdef HAS_ICU
+    int32_t i = 0;
+    UChar32 c;
+    U8_NEXT(point, i, curr_line->line_length - position + 1, c);
+    point += i;
+    position += i;
+#else
     if (ee_chinese && (*point > 127) &&
         ((curr_line->line_length - position) >= 2)) {
       point++;
@@ -1566,6 +1791,7 @@ void right(int disp) {
     }
     point++;
     position++;
+#endif
     scanline(point);
     wmove(text_win, scr_vert, (scr_horz - horiz_offset));
     scr_pos = scr_horz;
@@ -1594,6 +1820,13 @@ void find_pos() {
   position = 1;
   while ((scr_horz < scr_pos) && (position < curr_line->line_length)) {
     scr_horz += len_char(*point, scr_horz);
+#ifdef HAS_ICU
+    int32_t i = 0;
+    UChar32 c;
+    U8_NEXT(point, i, curr_line->line_length - position + 1, c);
+    point += i;
+    position += i;
+#else
     if (ee_chinese && (*point > 127) &&
         ((curr_line->line_length - position) >= 2)) {
       point++;
@@ -1601,6 +1834,7 @@ void find_pos() {
     }
     position++;
     point++;
+#endif
   }
 
   int beyond_last = (scr_horz - horiz_offset) > last_col;
@@ -1711,7 +1945,7 @@ void function_key() {
   } else if (in == KEY_F(4)) {
     if (gold) {
       gold = false;
-      paint_info_win();
+      resize_info_win();
       midscreen(scr_vert, point);
     } else {
       {
@@ -1773,7 +2007,9 @@ void command_prompt() {
   int result;
 
   info_type = COMMANDS;
-  paint_info_win();
+  if (info_window) {
+    resize_info_win();
+  }
   cmd_str = get_string(command_str, 1);
   if ((result = unique_test(cmd_str, commands)) != 1) {
     werase(com_win);
@@ -1787,7 +2023,9 @@ void command_prompt() {
     wrefresh(com_win);
 
     info_type = CONTROL_KEYS;
-    paint_info_win();
+    if (info_window) {
+      resize_info_win();
+    }
 
     if (cmd_str != nullptr) {
       free(cmd_str);
@@ -1798,7 +2036,9 @@ void command_prompt() {
   wrefresh(com_win);
   wmove(text_win, scr_vert, (scr_horz - horiz_offset));
   info_type = CONTROL_KEYS;
-  paint_info_win();
+  if (info_window) {
+    resize_info_win();
+  }
   if (cmd_str != nullptr) {
     free(cmd_str);
   }
@@ -1897,10 +2137,6 @@ void command(char *cmd_str1) {
     {
       expand_tabs = false;
     }
-  } else if (compare(cmd_str, Exit_string, false)) {
-    {
-      finish();
-    }
   } else if (compare(cmd_str, chinese_cmd, false)) {
     ee_chinese = true;
 #ifdef NCURSE
@@ -1911,10 +2147,6 @@ void command(char *cmd_str1) {
 #ifdef NCURSE
     nc_clearattrib(A_NC_BIG5);
 #endif /* NCURSE */
-  } else if (compare(cmd_str, QUIT_string, false)) {
-    {
-      quit(0);
-    }
   } else if (*cmd_str == '!') {
     cmd_str++;
     if ((*cmd_str == ' ') || (*cmd_str == 9)) {
@@ -2121,7 +2353,7 @@ static void goto_line(char *cmd_str) {
   wmove(text_win, scr_vert, (scr_horz - horiz_offset));
 }
 
-static struct text *find_next_recursive(struct text *line, int count,
+struct text *find_next_recursive(struct text *line, int count,
                                         int *actual_count) {
   if (count <= 0 || line == nullptr)
     return line;
@@ -2129,7 +2361,7 @@ static struct text *find_next_recursive(struct text *line, int count,
   return find_next_recursive(line->next_line, count - 1, actual_count);
 }
 
-static struct text *find_prev_recursive(struct text *line, int count,
+struct text *find_prev_recursive(struct text *line, int count,
                                         int *actual_count) {
   if (count <= 0 || line->prev_line == nullptr)
     return line;
@@ -2283,7 +2515,9 @@ void check_fp() {
     curr_line = tmp_line;
   }
   point = curr_line->line;
+#ifdef HAS_TREESITTER
   reparse();
+#endif
   draw_screen();
   if (input_file) {
     input_file = false;
@@ -2510,6 +2744,7 @@ int quit(int noverify) {
     resetty();
     endwin();
     putchar('\n');
+    cleanup();
     exit(0);
   } else {
     delete_text();
@@ -2520,12 +2755,38 @@ int quit(int noverify) {
   return 0;
 }
 
+void cleanup() {
+#ifdef HAS_ICU
+  if (icu_bundle != nullptr) {
+    ures_close(icu_bundle);
+    icu_bundle = nullptr;
+  }
+#endif
+#ifdef HAS_TREESITTER
+  if (ts_tree != nullptr) {
+    ts_tree_delete(ts_tree);
+    ts_tree = nullptr;
+  }
+  if (ts_parser != nullptr) {
+    ts_parser_delete(ts_parser);
+    ts_parser = nullptr;
+  }
+#endif
+#ifdef HAS_LSP
+  if (lsp_pid != -1) {
+    kill(lsp_pid, SIGTERM);
+    lsp_pid = -1;
+  }
+#endif
+}
+
 static void edit_abort(int arg) {
   (void)arg;
   wrefresh(com_win);
   resetty();
   endwin();
   putchar('\n');
+  cleanup();
   exit(1);
 }
 
@@ -3617,44 +3878,13 @@ void set_up_term() {
     curses_initialized = true;
   }
 
-  int info_win_height = 0;
-  if (info_window) {
-    if (LINES < 10) {
-      info_win_height = 2;
-    } else if (LINES < 15) {
-      info_win_height = 4;
-    } else {
-      info_win_height = 6;
-    }
-    last_line = LINES - (info_win_height + 2);
-  } else {
-    info_window = false;
-    last_line = LINES - 2;
-  }
-
   idlok(stdscr, true);
   com_win = newwin(1, COLS, (LINES - 1), 0);
   keypad(com_win, true);
   idlok(com_win, true);
   wrefresh(com_win);
-  if (!info_window) {
-    text_win = newwin((LINES - 1), COLS, 0, 0);
-  } else {
-    text_win = newwin((LINES - (info_win_height + 1)), COLS, info_win_height, 0);
-  }
-  keypad(text_win, true);
-  idlok(text_win, true);
-  wtimeout(text_win, 5000);
-  wrefresh(text_win);
-  help_win = newwin((LINES - 1), COLS, 0, 0);
-  keypad(help_win, true);
-  idlok(help_win, true);
-  if (info_window) {
-    info_type = CONTROL_KEYS;
-    info_win = newwin(info_win_height, COLS, 0, 0);
-    werase(info_win);
-    paint_info_win();
-  }
+
+  resize_info_win();
 
   last_col = COLS - 1;
   local_LINES = LINES;
@@ -3682,8 +3912,9 @@ void resize_check() {
   wrefresh(text_win);
 }
 
-static char item_alpha[] = "abcdefghijklmnopqrstuvwxyz0123456789 ";
+char item_alpha[] = "abcdefghijklmnopqrstuvwxyz0123456789 ";
 
+#ifdef HAS_MENU
 int menu_op(struct menu_entries menu_list[]) {
   WINDOW *temp_win;
   int max_width;
@@ -3776,7 +4007,7 @@ int menu_op(struct menu_entries menu_list[]) {
     in = wgetch(temp_win);
     input = in;
     if (input == -1) {
-      exit(0);
+      edit_abort(0);
     }
 
     if ((isascii(input) != 0) && (isalnum(input) != 0)) {
@@ -3865,9 +4096,9 @@ int menu_op(struct menu_entries menu_list[]) {
   wrefresh(temp_win);
   delwin(temp_win);
 
-  if ((menu_list[counter].procedure != nullptr) ||
+  if (counter > 0 && ((menu_list[counter].procedure != nullptr) ||
       (menu_list[counter].iprocedure != nullptr) ||
-      (menu_list[counter].nprocedure != nullptr)) {
+      (menu_list[counter].nprocedure != nullptr))) {
     if (menu_list[counter].argument != -1) {
       (*menu_list[counter].iprocedure)(menu_list[counter].argument);
     } else if (menu_list[counter].ptr_argument != nullptr) {
@@ -3884,7 +4115,9 @@ int menu_op(struct menu_entries menu_list[]) {
 
   return counter;
 }
+#endif
 
+#ifdef HAS_MENU
 static void paint_menu(struct menu_entries menu_list[], int max_width,
                        int max_height, int list_size, int top_offset,
                        WINDOW *menu_win, int off_start, int vert_size) {
@@ -3944,36 +4177,19 @@ static void paint_menu(struct menu_entries menu_list[], int max_width,
   wstandend(menu_win);
 
   if (list_size > vert_size) {
-    if (off_start >= 3) {
-      temp_int = 1;
-      wmove(menu_win, top_offset, 3);
-      waddstr(menu_win, more_above_str);
-    } else {
-      {
-        temp_int = 0;
-      }
-    }
-
-    for (counter = off_start;
-         ((temp_int + counter - off_start) < (vert_size - 1)); counter++) {
-      wmove(menu_win, (top_offset + temp_int + (counter - off_start)), 3);
+    for (counter = off_start; counter < (off_start + vert_size); counter++) {
+      wmove(menu_win, (top_offset + counter - off_start), 3);
       if (list_size > 1) {
         wprintw(menu_win, "%c) ",
-                item_alpha[min((counter - 1), max_alpha_char)]);
+                item_alpha[min((counter - 1), MAX_ALPHA_CHAR)]);
       }
       waddstr(menu_win, menu_list[counter].item_string);
-    }
-
-    wmove(menu_win, (top_offset + (vert_size - 1)), 3);
-
-    if (counter == list_size) {
-      if (list_size > 1) {
-        wprintw(menu_win, "%c) ",
-                item_alpha[min((counter - 1), max_alpha_char)]);
+      if (off_start > 1) {
+        wmove(menu_win, top_offset, (max_width - 12));
+        wprintw(menu_win, "%s", more_above_str);
       }
-      wprintw(menu_win, "%s", menu_list[counter].item_string);
-    } else {
-      {
+      if ((off_start + vert_size - 1) < list_size) {
+        wmove(menu_win, (top_offset + vert_size - 1), (max_width - 12));
         wprintw(menu_win, "%s", more_below_str);
       }
     }
@@ -3982,13 +4198,14 @@ static void paint_menu(struct menu_entries menu_list[], int max_width,
       wmove(menu_win, (top_offset + counter - 1), 3);
       if (list_size > 1) {
         wprintw(menu_win, "%c) ",
-                item_alpha[min((counter - 1), max_alpha_char)]);
+                item_alpha[min((counter - 1), MAX_ALPHA_CHAR)]);
       }
       waddstr(menu_win, menu_list[counter].item_string);
     }
   }
 }
-
+#endif
+#ifdef HAS_HELP
 void help() {
   int counter;
 
@@ -4006,7 +4223,7 @@ void help() {
   wrefresh(com_win);
   counter = wgetch(com_win);
   if (counter == -1) {
-    exit(0);
+    edit_abort(0);
   }
   werase(com_win);
   wmove(com_win, 0, 0);
@@ -4015,7 +4232,63 @@ void help() {
   wrefresh(com_win);
   redraw();
 }
+#endif
 
+static int get_info_win_height() {
+  if (!info_window)
+    return 0;
+  int count = 0;
+  if (info_type == CONTROL_KEYS) {
+    char **keys = (gold) ? gold_control_keys : (emacs_keys_mode ? emacs_control_keys : control_keys);
+    while (count < 5 && keys[count] != nullptr && keys[count][0] != '\0') {
+      count++;
+    }
+  } else if (info_type == COMMANDS) {
+    while (count < 5 && command_strings[count] != nullptr && command_strings[count][0] != '\0') {
+      count++;
+    }
+  }
+  return max(1, count + 1); // At least 1 for status line
+}
+
+void resize_info_win() {
+  if (!curses_initialized) return;
+
+  int new_height = get_info_win_height();
+  
+  if (info_win != nullptr) {
+    delwin(info_win);
+    info_win = nullptr;
+  }
+  if (text_win != nullptr) {
+    delwin(text_win);
+    text_win = nullptr;
+  }
+
+  if (new_height > 0) {
+    info_win = newwin(new_height, COLS, 0, 0);
+    if (info_win != nullptr) {
+      idlok(info_win, true);
+      keypad(info_win, true);
+    }
+    text_win = newwin(LINES - new_height - 1, COLS, new_height, 0);
+  } else {
+    text_win = newwin(LINES - 1, COLS, 0, 0);
+  }
+
+  if (text_win != nullptr) {
+    keypad(text_win, true);
+    idlok(text_win, true);
+    wtimeout(text_win, 5000);
+    last_line = getmaxy(text_win) - 1;
+  }
+
+  if (info_win != nullptr) {
+    paint_info_win();
+  }
+  draw_screen();
+  doupdate();
+}
 void paint_info_win() {
   int counter;
   int height, width;
@@ -4032,8 +4305,17 @@ void paint_info_win() {
     wclrtoeol(info_win);
     if (info_type == CONTROL_KEYS) {
       if (counter < 5) {
-        waddstr(info_win, (emacs_keys_mode) ? emacs_control_keys[counter]
-                                           : control_keys[counter]);
+        char *str = (emacs_keys_mode) ? emacs_control_keys[counter]
+                                      : control_keys[counter];
+        if (gold) {
+          str = gold_control_keys[counter];
+        }
+        if (str != nullptr && *str != '\0') {
+          waddstr(info_win, str);
+        } else {
+          // If we encounter a null/empty string, we might want to skip the line
+          // but we already did werase, so we just don't move or anything.
+        }
       }
     } else if (info_type == COMMANDS) {
       if (counter < 5) {
@@ -4049,11 +4331,11 @@ void paint_info_win() {
   }
 
   char status_buf[128];
-  snprintf(status_buf, sizeof(status_buf), " %sline %d col %d top %d ",
-           gold ? "GOLD " : "", curr_line->line_number, scr_horz, absolute_lin);
+  snprintf(status_buf, sizeof(status_buf), " line %d col %d top %d=",
+           curr_line->line_number, scr_horz, absolute_lin);
   int status_len = strlen(status_buf);
 
-  char const *legend = " ^ = Ctrl key  ---- access HELP through menu ---";
+  char const *legend = "^ = Ctrl key ---- access HELP through menu ---";
   int legend_len = strlen(legend);
 
   // Draw legend
@@ -4084,7 +4366,7 @@ void paint_info_win() {
   }
 
   wstandend(info_win);
-  wrefresh(info_win);
+  wnoutrefresh(info_win);
 }
 
 void no_info_window() {
@@ -4531,10 +4813,12 @@ void ee_init() {
         } else if (compare(str1, INFO, false)) {
           {
             info_window = true;
+            resize_info_win();
           }
         } else if (compare(str1, NOINFO, false)) {
           {
             info_window = false;
+            resize_info_win();
           }
         } else if (compare(str1, MARGINS, false)) {
           {
@@ -4599,6 +4883,24 @@ void ee_init() {
           {
             ee_chinese = false;
           }
+        } else if (compare(str1, BIND, false)) {
+          char *key = next_word(str1);
+          char *cmd = next_word(key);
+          if (*key != '\0' && *cmd != '\0') {
+            bind_key(key, cmd, 0);
+          }
+        } else if (compare(str1, GBIND, false)) {
+          char *key = next_word(str1);
+          char *cmd = next_word(key);
+          if (*key != '\0' && *cmd != '\0') {
+            bind_key(key, cmd, 1);
+          }
+        } else if (compare(str1, EBIND, false)) {
+          char *key = next_word(str1);
+          char *cmd = next_word(key);
+          if (*key != '\0' && *cmd != '\0') {
+            bind_key(key, cmd, 2);
+          }
         }
       }
       fclose(init_file);
@@ -4611,6 +4913,9 @@ void ee_init() {
   if (string != nullptr) {
     if (strcmp(string, "zh_TW.big5") == 0) {
       ee_chinese = true;
+      eightbit = true;
+    } else if (strstr(string, "UTF-8") != nullptr ||
+               strstr(string, "utf8") != nullptr) {
       eightbit = true;
     }
   }
@@ -4707,6 +5012,33 @@ void dump_ee_conf() {
   fprintf(init_file, "%s\n",
           (((int)ee_chinese) != 0) ? chinese_cmd : nochinese_cmd);
 
+  // Dump key bindings
+  for (int t = 0; t < 3; t++) {
+    control_handler *tbl = (t == 0) ? base_control_table : (t == 1 ? gold_control_table : emacs_control_table);
+    const char *cmd = (t == 0) ? BIND : (t == 1 ? GBIND : EBIND);
+    for (int i = 0; i < 32; i++) {
+      if (tbl[i] == no_op) continue;
+      const char *cmd_name = nullptr;
+      for (int j = 0; commands_table[j].name != nullptr; j++) {
+        if (commands_table[j].handler == tbl[i]) {
+          cmd_name = commands_table[j].name;
+          break;
+        }
+      }
+      if (cmd_name != nullptr) {
+        char key[4];
+        if (i == 0) sprintf(key, "^@");
+        else if (i < 27) sprintf(key, "^%c", i + '@');
+        else if (i == 27) sprintf(key, "^[");
+        else if (i == 28) sprintf(key, "^\\");
+        else if (i == 29) sprintf(key, "^]");
+        else if (i == 30) sprintf(key, "^^");
+        else if (i == 31) sprintf(key, "^_");
+        fprintf(init_file, "%s %s %s\n", cmd, key, cmd_name);
+      }
+    }
+  }
+
   fclose(init_file);
 
   wprintw(com_win, conf_dump_success_msg, file_name);
@@ -4778,6 +5110,7 @@ void echo_string(char *string) {
 }
 
 /* check spelling of words in the editor	*/
+#ifdef HAS_SPELL
 void spell_op() {
   if (restrict_mode()) {
     return;
@@ -4824,6 +5157,7 @@ void ispell_op() {
     unlink(name);
   }
 }
+#endif
 
 int from_top(struct text *test_line) {
   int counter = 0;
@@ -5187,17 +5521,12 @@ void modes_op() {
       wnoutrefresh(text_win);
       break;
     case 6:
-      if (info_window) {
-        no_info_window();
-      } else {
-        create_info_window();
-      }
+      info_window = !info_window;
+      resize_info_win();
       break;
     case 7:
       emacs_keys_mode = !emacs_keys_mode;
-      if (info_window) {
-        paint_info_win();
-      }
+      resize_info_win();
       break;
     case 8:
       string = get_string(margin_prompt, 1);
@@ -5390,29 +5719,37 @@ int unique_test(char *string, char *list[]) {
   return num_match;
 }
 
-#ifndef NO_CATGETS
-/*
- |	Get the catalog entry, and if it got it from the catalog,
- |	make a copy, since the buffer will be overwritten by the
- |	next call to catgets().
- */
-
+#ifdef HAS_ICU
 char *catgetlocal(int number, char *string) {
-  char *temp1;
-  static char *temp2;
+  if (icu_bundle == nullptr)
+    return string;
 
-  temp1 = catgets(catalog, 1, number, string);
-  if (temp1 != string) {
-    size_t t2_len = strlen(temp1) + 1;
-    temp2 = malloc(t2_len);
-    strscpy(temp2, temp1, t2_len);
-    temp1 = temp2;
+  char key[32];
+  sprintf(key, "msg_%d", number);
+
+  UErrorCode status = U_ZERO_ERROR;
+  int32_t len;
+  const UChar *u_str = ures_getStringByKey(icu_bundle, key, &len, &status);
+
+  if (U_SUCCESS(status)) {
+    // Convert UChar* to UTF-8 char*
+    int32_t utf8_len;
+    u_strToUTF8(nullptr, 0, &utf8_len, u_str, len, &status);
+    if (status == U_BUFFER_OVERFLOW_ERROR) {
+      status = U_ZERO_ERROR;
+      char *utf8_buf = malloc(utf8_len + 1);
+      u_strToUTF8(utf8_buf, utf8_len + 1, nullptr, u_str, len, &status);
+      if (U_SUCCESS(status)) {
+        return utf8_buf; // Note: might leak if not careful, but consistent with existing logic
+      }
+      free(utf8_buf);
+    }
   }
-  return temp1;
+  return string;
 }
 #else
 char *catgetlocal(int number, char *string) { return string; }
-#endif /* NO_CATGETS */
+#endif /* HAS_ICU */
 
 /*
  |	The following is to allow for using message catalogs which allow
@@ -5421,13 +5758,108 @@ char *catgetlocal(int number, char *string) { return string; }
  |	documentation, or the X/Open Internationalization Guide.
  */
 
+static char *get_key_binding(control_handler handler, control_handler *table) {
+  static char key[16];
+  for (int i = 0; i < 32; i++) {
+    if (table[i] == handler) {
+      if (i == 0) return "^@";
+      if (i < 27) {
+        sprintf(key, "^%c", i + '@');
+        return key;
+      }
+      if (i == 27) return "^[";
+      if (i == 28) return "^\\";
+      if (i == 29) return "^]";
+      if (i == 30) return "^^";
+      if (i == 31) return "^_";
+    }
+  }
+  return "";
+}
+
+static char *format_shortcut(const char *cmd_name, control_handler *table) {
+  static char buf[64];
+  control_handler h = nullptr;
+  const char *short_desc = "";
+  for (int i = 0; commands_table[i].name != nullptr; i++) {
+    if (strcmp(commands_table[i].name, cmd_name) == 0) {
+      h = commands_table[i].handler;
+      short_desc = commands_table[i].short_desc;
+      break;
+    }
+  }
+  if (h == nullptr) return "";
+  char *key = get_key_binding(h, table);
+  if (key[0] == '\0') return "";
+  sprintf(buf, "%s %s", key, short_desc);
+  return buf;
+}
+
+static void update_help_strings() {
+  static char lines[5][128];
+  static char glines[5][128];
+  control_handler *tbl = emacs_keys_mode ? emacs_control_table : base_control_table;
+
+#ifdef HAS_MENU
+  snprintf(lines[0], 128, "Esc menu  %s  %s  %s  %s",
+#else
+  snprintf(lines[0], 128, "%s  %s  %s  %s  %s",
+#endif
+           format_shortcut("prev_page", tbl), format_shortcut("del_char", tbl),
+           format_shortcut("eol", tbl), format_shortcut("adv_word", tbl));
+  control_keys[0] = lines[0];
+
+  snprintf(lines[1], 128, "%s  %s  %s  %s  %s",
+           format_shortcut("command_prompt", tbl), format_shortcut("del_line", tbl),
+           format_shortcut("mark", tbl), format_shortcut("replace_prompt", tbl),
+           format_shortcut("top_of_txt", tbl));
+  control_keys[1] = lines[1];
+
+  snprintf(lines[2], 128, "%s  %s  %s  %s  %s",
+           format_shortcut("search", tbl), format_shortcut("cut", tbl),
+           format_shortcut("gold_toggle", tbl), format_shortcut("bottom_of_txt", tbl),
+           format_shortcut("del_word", tbl));
+  control_keys[2] = lines[2];
+
+  snprintf(lines[3], 128, "%s  %s  %s  %s  %s",
+           format_shortcut("copy", tbl), format_shortcut("adv_char", tbl),
+           format_shortcut("next_page", tbl), format_shortcut("bol", tbl),
+           format_shortcut("paste", tbl));
+  control_keys[3] = lines[3];
+
+  control_keys[4] = nullptr;
+
+  // GOLD help strings
+#ifdef HAS_MENU
+  snprintf(glines[0], 128, "Esc menu  %s  %s  %s  %s",
+#else
+  snprintf(glines[0], 128, "Esc exit  %s  %s  %s  %s",
+#endif
+           format_shortcut("und_char", gold_control_table),
+           format_shortcut("und_word", gold_control_table),
+           format_shortcut("und_line", gold_control_table),
+           format_shortcut("search_reverse", gold_control_table));
+  gold_control_keys[0] = glines[0];
+
+  snprintf(glines[1], 128, "%s  %s  %s  %s",
+           format_shortcut("format", gold_control_table),
+           format_shortcut("search_prompt", gold_control_table),
+           format_shortcut("replace_prompt", gold_control_table),
+           format_shortcut("append", gold_control_table));
+  gold_control_keys[1] = glines[1];
+  gold_control_keys[2] = nullptr;
+  gold_control_keys[3] = nullptr;
+  gold_control_keys[4] = nullptr;
+}
+
 static void strings_init() {
   int counter;
 
   setlocale(LC_ALL, "");
-#ifndef NO_CATGETS
-  catalog = catopen("ee", NL_CAT_LOCALE);
-#endif /* NO_CATGETS */
+#ifdef HAS_ICU
+  UErrorCode status = U_ZERO_ERROR;
+  icu_bundle = ures_open(nullptr, uloc_getDefault(), &status);
+#endif
 
   modes_menu[0].item_string = catgetlocal(1, "modes menu");
   mode_strings[1] = catgetlocal(2, "tabs to spaces       ");
@@ -5493,9 +5925,9 @@ static void strings_init() {
                                   "char    : ascii code of char       ");
   help_text[14] = catgetlocal(49, "write   : write a file                  "
                                   "case    : case sensitive search    ");
-  help_text[15] = catgetlocal(50, "exit    : leave and save                "
+  help_text[15] = catgetlocal(50, "                                        "
                                   "nocase  : case insensitive search  ");
-  help_text[16] = catgetlocal(51, "quit    : leave, no save                "
+  help_text[16] = catgetlocal(51, "                                        "
                                   "!cmd    : execute \"cmd\" in shell   ");
   help_text[17] = catgetlocal(52, "line    : display line #                0-9 "
                                   "    : go to line \"#\"           ");
@@ -5507,11 +5939,8 @@ static void strings_init() {
                                   "                                  ");
   help_text[21] = catgetlocal(56, "+# :go to line #  -i :no info window  -e : "
                                   "don't expand tabs  -h :no highlight");
-  control_keys[0] = catgetlocal(57, "Esc  menu       ^P   prev page  ^K   del char   ^O   end of lin ^Y   adv word   ^G^P prev buff  ^G^V forward    ^J   carrg rtrn");
-  control_keys[1] = catgetlocal(58, "^E   command    ^L   del line   ^G^K und char   ^U   mark       ^Z   replace    ^G^X fmt parag  ^G^R reverse    ^H   backspace");
-  control_keys[2] = catgetlocal(59, "^T   top of txt ^G^L und line   ^F   search     ^X   cut        ^G^Z repl prmpt ^G^X fmt parag  ^G^B append     ^G   GOLD");
-  control_keys[3] = catgetlocal(60, "^B   end of txt ^W   del word   ^G^F srch prmpt ^C   copy       ^G^C clear line ^A   adv char   ^G^D prefix");
-  control_keys[4] = catgetlocal(61, "^N   next page  ^G^W und word   ^D   beg of lin ^V   paste      ^G^N next buff  ^G^Y prev word  ^R   redraw");
+  update_help_strings();
+
   command_strings[0] =
       catgetlocal(62, "help : get help info  |file  : print file name         "
                       "|line : print line # ");
@@ -5667,9 +6096,12 @@ static void strings_init() {
                        "forward char            ");
   emacs_control_keys[4] =
       catgetlocal(158, "^c command       ^d delete char   ^j undelete char     "
-                       "         ESC-Enter: exit");
+                       "                         ");
   EMACS_string = catgetlocal(159, "EMACS");
   NOEMACS_string = catgetlocal(160, "NOEMACS");
+  BIND = catgetlocal(191, "BIND");
+  GBIND = catgetlocal(192, "GBIND");
+  EBIND = catgetlocal(193, "EBIND");
   usage4 = catgetlocal(161, "       +#   put cursor at line #\n");
   conf_dump_err_msg = catgetlocal(
       162, "unable to open .init.ee for writing, no configuration saved!");
@@ -5701,8 +6133,8 @@ static void strings_init() {
   commands[10] = NOCASE;
   commands[11] = EXPAND;
   commands[12] = NOEXPAND;
-  commands[13] = Exit_string;
-  commands[14] = QUIT_string;
+  commands[13] = nullptr;
+  commands[14] = nullptr;
   commands[15] = "<";
   commands[16] = ">";
   commands[17] = "!";
@@ -5741,7 +6173,10 @@ static void strings_init() {
   init_strings[18] = NOEMACS_string;
   init_strings[19] = chinese_cmd;
   init_strings[20] = nochinese_cmd;
-  init_strings[21] = nullptr;
+  init_strings[21] = BIND;
+  init_strings[22] = GBIND;
+  init_strings[23] = EBIND;
+  init_strings[24] = nullptr;
 
   /*
    |	allocate space for strings here for settings menu
@@ -5750,8 +6185,4 @@ static void strings_init() {
   for (counter = 1; counter < NUM_MODES_ITEMS; counter++) {
     modes_menu[counter].item_string = malloc(80);
   }
-
-#ifndef NO_CATGETS
-  catclose(catalog);
-#endif /* NO_CATGETS */
 }
