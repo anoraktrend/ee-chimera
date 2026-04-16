@@ -13,7 +13,7 @@ ENABLE_SPELL=${ENABLE_SPELL:-1}
 ENABLE_AUTOFORMAT=${ENABLE_AUTOFORMAT:-1}
 ENABLE_INFO_WIN=${ENABLE_INFO_WIN:-1}
 
-CFLAGS="-std=c23"
+CFLAGS="-std=c23 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600"
 LIBS=""
 
 # Probe ncursesw/ncurses/curses
@@ -81,11 +81,21 @@ fi
 [ "$ENABLE_AUTOFORMAT" = "1" ] && CFLAGS="$CFLAGS -DHAS_AUTOFORMAT"
 [ "$ENABLE_INFO_WIN" = "1" ] && CFLAGS="$CFLAGS -DHAS_INFO_WIN"
 
+# Probe scdoc
+if which scdoc > /dev/null 2>&1; then
+    SCDOC="scdoc"
+    echo "Found scdoc"
+else
+    SCDOC=""
+    echo "Warning: scdoc not found, man page generation disabled"
+fi
+
 # Generate config.mk
 echo "Generating config.mk..."
 cat << EOF > config.mk
 CFLAGS = $CFLAGS
 LDFLAGS = $LIBS
+SCDOC = $SCDOC
 EOF
 
 echo "Done. Now you can run 'make'."
