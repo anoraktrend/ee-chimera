@@ -37,4 +37,8 @@ init.ee.5: init.ee.5.scd
 	fi
 
 clean:
-	rm -f ee ee.1 init.ee.5 ee.res
+	rm -f ee ee.1 init.ee.5 ee.res cluster.txt symorder.txt perf.data
+
+propeller:
+	chmod +x optimize_ee.sh
+	./optimize_ee.sh

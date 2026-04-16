@@ -289,7 +289,7 @@ extern char *emacs_help_text[MAX_EMACS_HELP_LINES];
 extern char *emacs_control_keys[5];
 extern char *command_strings[5];
 extern char *commands[32];
-extern char *init_strings[MAX_INIT_STRINGS];
+extern char *init_strings[32];
 extern char *mode_strings[11];
 
 enum { NUM_MODES_ITEMS = 10 };
@@ -391,12 +391,14 @@ extern char item_alpha[];
 int quit_wrapper(int arg);
 int file_op_wrapper(int arg);
 int search_wrapper(int arg);
+#ifdef HAS_MENU
 int menu_op_wrapper(struct menu_entries *m);
+#endif
 void no_op(void);
 typedef void (*control_handler)(void);
-extern control_handler base_control_table[];
-extern control_handler gold_control_table[];
-extern control_handler emacs_control_table[];
+extern control_handler base_control_table[1024];
+extern control_handler gold_control_table[1024];
+extern control_handler emacs_control_table[1024];
 #ifdef HAS_LSP
 static void lsp_change_file(const char *filename);
 static void lsp_start(void);
