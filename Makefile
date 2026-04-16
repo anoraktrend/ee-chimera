@@ -5,10 +5,18 @@ CFLAGS ?= -std=c23 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600
 LDFLAGS ?= -lcurses
 SCDOC ?= scdoc
 
-all: ee man
+all: ee man ee.res
 
 ee: ee.c
 	$(CC) $(CFLAGS) ee.c -o ee $(LDFLAGS)
+
+ee.res: ee.txt
+	@if which genrb > /dev/null 2>&1; then \
+		genrb ee.txt; \
+		echo "Generated ee.res"; \
+	else \
+		echo "genrb not found, skipping ee.res generation"; \
+	fi
 
 man: ee.1 init.ee.5
 
@@ -29,5 +37,4 @@ init.ee.5: init.ee.5.scd
 	fi
 
 clean:
-	rm -f ee ee.1 init.ee.5
-
+	rm -f ee ee.1 init.ee.5 ee.res
