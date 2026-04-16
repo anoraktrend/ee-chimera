@@ -10,7 +10,7 @@ all: ee man
 ee: ee.c
 	$(CC) $(CFLAGS) ee.c -o ee $(LDFLAGS)
 
-man: ee.1
+man: ee.1 init.ee.5
 
 ee.1: ee.1.scd
 	@if [ -n "$(SCDOC)" ]; then \
@@ -20,6 +20,14 @@ ee.1: ee.1.scd
 		echo "scdoc not found, skipping ee.1 generation"; \
 	fi
 
+init.ee.5: init.ee.5.scd
+	@if [ -n "$(SCDOC)" ]; then \
+		$(SCDOC) < init.ee.5.scd > init.ee.5; \
+		echo "Generated init.ee.5"; \
+	else \
+		echo "scdoc not found, skipping init.ee.5 generation"; \
+	fi
+
 clean:
-	rm -f ee ee.1
+	rm -f ee ee.1 init.ee.5
 
