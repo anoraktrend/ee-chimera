@@ -141,6 +141,9 @@ struct text *find_next_recursive(struct text *line, int count,
 struct text *find_prev_recursive(struct text *line, int count,
                                         int *actual_count);
 void cleanup(void);
+static const char *get_key_name(int i);
+static const char *get_key_binding(control_handler handler,
+                                   control_handler *table);
 
 #ifdef HAS_TREESITTER
 const TSLanguage *tree_sitter_c(void);
@@ -751,9 +754,26 @@ void bind_key(const char *key_str, const char *cmd_name, int table_type) {
     } else if (key_str[1] == '@') {
       key_idx = 0;
     }
+  } else if (strlen(key_str) >= 3 && key_str[1] == '-') {
+    char mod = toupper((unsigned char)key_str[0]);
+    int base_key = (unsigned char)key_str[2];
+    if (mod == 'M') { // Meta / Alt - map to 512 + base
+      key_idx = 512 + base_key;
+    } else if (mod == 'W') { // Windows / Super - map to 768 + base
+      key_idx = 768 + base_key;
+    } else if (mod == 'C') { // Ctrl
+      if (base_key >= '@' && base_key <= '_')
+        key_idx = base_key - '@';
+      else if (base_key >= 'a' && base_key <= 'z')
+        key_idx = base_key - 'a' + 1;
+    } else if (mod == 'S') { // Shift
+      key_idx = base_key; // Standard key, but we can differentiate if needed
+    }
+  } else if (strncmp(key_str, "code:", 5) == 0) {
+    key_idx = atoi(key_str + 5);
   }
 
-  if (key_idx == -1)
+  if (key_idx < 0 || key_idx >= 1024)
     return;
 
   control_handler handler = no_op;
@@ -798,7 +818,7 @@ static void gold_toggle(void) {
 }
 void no_op(void) {}
 
-control_handler base_control_table[32] = {
+control_handler base_control_table[1024] = {
     [1] = control_right,      [2] = bottom,
     [3] = control_copy,       [4] = bol,
     [5] = command_prompt,     [6] = control_search,
@@ -812,7 +832,7 @@ control_handler base_control_table[32] = {
     [24] = control_cut,       [25] = adv_word,
     [26] = replace_prompt,    [27] = control_esc};
 
-control_handler gold_control_table[32] = {
+control_handler gold_control_table[1024] = {
     [2] = gold_append,        [3] = del_line,
     [6] = search_prompt,      [11] = undel_char,
     [12] = undel_line,        [18] = gold_search_reverse,
@@ -821,7 +841,7 @@ control_handler gold_control_table[32] = {
     [25] = prev_word,         [26] = replace_prompt,
     [27] = control_gold_esc};
 
-control_handler emacs_control_table[32] = {
+control_handler emacs_control_table[1024] = {
     [1] = bol,                [2] = control_left,
     [3] = command_prompt,     [4] = del_char,
     [5] = eol,                [6] = control_right,
@@ -978,9 +998,34 @@ int main(int argc, char *argv[]) {
       wrefresh(com_win);
     }
 
+    if (in == 27) { // ESC - could be Meta/Alt or standalone
+      int next_in;
+      wtimeout(text_win, 50); // Short timeout for Meta
+#ifdef HAS_NCURSESW
+      wint_t next_wch;
+      int res_next = wget_wch(text_win, &next_wch);
+      next_in = (res_next == ERR) ? -1 : next_wch;
+#else
+      next_in = wgetch(text_win);
+#endif
+      wtimeout(text_win, 5000); // Restore timeout
+      if (next_in != -1) {
+        in = 512 + next_in;
+      }
+    }
+
     if (in > 255) {
-      {
+      if (in < 512) {
         function_key();
+      } else {
+        // Handle Meta/Extended keys via control tables
+        if (emacs_keys_mode) {
+          if (emacs_control_table[in % 1024] != no_op)
+            emacs_control_table[in % 1024]();
+        } else {
+          if (base_control_table[in % 1024] != no_op)
+            base_control_table[in % 1024]();
+        }
       }
     } else if ((in == '\10') || (in == ASCII_DEL)) {
       in = ASCII_BACKSPACE; /* make sure key is set to backspace */
@@ -5131,7 +5176,7 @@ void dump_ee_conf() {
   for (int t = 0; t < 3; t++) {
     control_handler *tbl = (t == 0) ? base_control_table : (t == 1 ? gold_control_table : emacs_control_table);
     const char *cmd = (t == 0) ? BIND : (t == 1 ? GBIND : EBIND);
-    for (int i = 0; i < 32; i++) {
+    for (int i = 0; i < 1024; i++) {
       if (tbl[i] == no_op) continue;
       const char *cmd_name = nullptr;
       for (int j = 0; commands_table[j].name != nullptr; j++) {
@@ -5141,15 +5186,7 @@ void dump_ee_conf() {
         }
       }
       if (cmd_name != nullptr) {
-        char key[4];
-        if (i == 0) sprintf(key, "^@");
-        else if (i < 27) sprintf(key, "^%c", i + '@');
-        else if (i == 27) sprintf(key, "^[");
-        else if (i == 28) sprintf(key, "^\\");
-        else if (i == 29) sprintf(key, "^]");
-        else if (i == 30) sprintf(key, "^^");
-        else if (i == 31) sprintf(key, "^_");
-        fprintf(init_file, "%s %s %s\n", cmd, key, cmd_name);
+        fprintf(init_file, "%s %s %s\n", cmd, get_key_name(i), cmd_name);
       }
     }
   }
@@ -5871,20 +5908,39 @@ char *catgetlocal(const char *key, char *string) { return string; }
  |	documentation, or the X/Open Internationalization Guide.
  */
 
-static char *get_key_binding(control_handler handler, control_handler *table) {
+static const char *get_key_name(int i) {
   static char key[16];
-  for (int i = 0; i < 32; i++) {
+  if (i == 0) return "^@";
+  if (i < 27) {
+    sprintf(key, "^%c", i + '@');
+    return key;
+  }
+  if (i == 27) return "^[";
+  if (i == 28) return "^\\";
+  if (i == 29) return "^]";
+  if (i == 30) return "^^";
+  if (i == 31) return "^_";
+  if (i >= 512 && i < 768) {
+    sprintf(key, "M-%c", i - 512);
+    return key;
+  }
+  if (i >= 768 && i < 1024) {
+    sprintf(key, "W-%c", i - 768);
+    return key;
+  }
+  if (i >= KEY_F(1) && i <= KEY_F(12)) {
+    sprintf(key, "F%d", i - KEY_F(0));
+    return key;
+  }
+  sprintf(key, "code:%d", i);
+  return (const char *)key;
+}
+
+static const char *get_key_binding(control_handler handler,
+                                   control_handler *table) {
+  for (int i = 0; i < 1024; i++) {
     if (table[i] == handler) {
-      if (i == 0) return "^@";
-      if (i < 27) {
-        sprintf(key, "^%c", i + '@');
-        return key;
-      }
-      if (i == 27) return "^[";
-      if (i == 28) return "^\\";
-      if (i == 29) return "^]";
-      if (i == 30) return "^^";
-      if (i == 31) return "^_";
+      return get_key_name(i);
     }
   }
   return "";
@@ -5902,7 +5958,7 @@ static char *format_shortcut(const char *cmd_name, control_handler *table) {
     }
   }
   if (h == nullptr) return "";
-  char *key = get_key_binding(h, table);
+  const char *key = get_key_binding(h, table);
   if (key[0] == '\0') return "";
   sprintf(buf, "%s %s", key, short_desc);
   return buf;
