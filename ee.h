@@ -485,7 +485,7 @@ bool compare(char *string1, char *string2, bool sensitive);
 char *resolve_name(const char *name);
 int write_file(char *file_name, bool warn_if_exists);
 char *get_token(char *string, char *substring);
-char *catgetlocal(int number, char *string);
+char *catgetlocal(const char *key, char *string);
 void *next_word(void *string);
 void draw_screen(void);
 void get_file(const char *file_name);

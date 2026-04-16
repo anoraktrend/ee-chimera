@@ -1,0 +1,183 @@
+root {
+    modes_menu { "modes menu" }
+    tabs_to_spaces { "tabs to spaces       " }
+    case_sensitive_search { "case sensitive search" }
+    margins_observed { "margins observed     " }
+    auto_paragraph_format { "auto-paragraph format" }
+    eightbit_characters { "eightbit characters  " }
+    info_window_toggle { "info window          " }
+    right_margin_toggle { "right margin         " }
+    leave_menu { "leave menu" }
+    save_changes { "save changes" }
+    no_save { "no save" }
+    file_menu { "file menu" }
+    read_file { "read a file" }
+    write_file { "write a file" }
+    save_file { "save file" }
+    print_contents { "print editor contents" }
+    search_menu { "search menu" }
+    search_for_prompt { "search for ..." }
+    search_cmd { "search" }
+    spell_menu { "spell menu" }
+    use_spell { "use 'spell'" }
+    use_ispell { "use 'ispell'" }
+    misc_menu { "miscellaneous menu" }
+    format_paragraph { "format paragraph" }
+    shell_command { "shell command" }
+    check_spelling { "check spelling" }
+    main_menu { "main menu" }
+    leave_editor { "leave editor" }
+    help_cmd { "help" }
+    file_operations { "file operations" }
+    redraw_screen { "redraw screen" }
+    settings { "settings" }
+    search { "search" }
+    miscellaneous { "miscellaneous" }
+    control_keys_header { "Control keys:                                                              " }
+    help_text_1 { "^a ascii code           ^i tab                  ^r right                   " }
+    help_text_2 { "^b bottom of text       ^j newline              ^t top of text             " }
+    help_text_3 { "^c command              ^k delete char          ^u up                      " }
+    help_text_4 { "^d down                 ^l left                 ^v undelete word           " }
+    help_text_5 { "^e search prompt        ^m newline              ^w delete word             " }
+    help_text_6 { "^f undelete char        ^n next page            ^x search                  " }
+    help_text_7 { "^g begin of line        ^o end of line          ^y delete line             " }
+    help_text_8 { "^h backspace            ^p prev page            ^z undelete line           " }
+    help_text_9 { "^[ (escape) menu                                                           " }
+    help_text_blank { "                                                                           " }
+    commands_header { "Commands:                                                                  " }
+    commands_help_1 { "help    : get this info                 file    : print file name          " }
+    commands_help_2 { "read    : read a file                   char    : ascii code of char       " }
+    commands_help_3 { "write   : write a file                  case    : case sensitive search    " }
+    commands_help_4 { "exit    : leave and save                nocase  : case insensitive search  " }
+    commands_help_5 { "quit    : leave, no save                !cmd    : execute \"cmd\" in shell   " }
+    commands_help_6 { "line    : display line #                0-9     : go to line \"#\"           " }
+    commands_help_7 { "expand  : expand tabs                   noexpand: do not expand tabs         " }
+    commands_help_8 { "                                                                             " }
+    usage_summary { "  ee [+#] [-i] [-e] [-h] [file(s)]                                            " }
+    usage_options { "+# :go to line #  -i :no info window  -e : don't expand tabs  -h :no highlight" }
+    control_keys_1 { "^[ (escape) menu  ^e search prompt  ^y delete line    ^u up     ^p prev page  " }
+    control_keys_2 { "^a ascii code     ^x search         ^z undelete line  ^d down   ^n next page  " }
+    control_keys_3 { "^b bottom of text ^g begin of line  ^w delete word    ^l left                 " }
+    control_keys_4 { "^t top of text    ^o end of line    ^v undelete word  ^r right                " }
+    control_keys_5 { "^c command        ^k delete char    ^f undelete char                          " }
+    command_strings_1 { "help : get help info  |file  : print file name         |line : print line # " }
+    command_strings_2 { "read : read a file    |char  : ascii code of char      |0-9 : go to line \"#\"" }
+    command_strings_3 { "write: write a file   |case  : case sensitive search   |exit : leave and save " }
+    command_strings_4 { "!cmd : shell \"cmd\"    |nocase: ignore case in search   |quit : leave, no save" }
+    command_strings_5 { "expand: expand tabs   |noexpand: do not expand tabs                           " }
+    press_esc_for_menu { "    press Escape (^[) for menu" }
+    no_file { "no file" }
+    ascii_code_prompt { "ascii code: " }
+    sending_to_printer { "sending contents of buffer to \"%s\" " }
+    command_prompt { "command: " }
+    file_write_prompt { "name of file to write: " }
+    file_read_prompt { "name of file to read: " }
+    character_info { "character = %d" }
+    unknown_command { "unknown command \"%s\"" }
+    command_not_unique { "entered command is not unique" }
+    line_info { "line %d  " }
+    length_info { "length = %d" }
+    current_file_info { "current file is \"%s\" " }
+    usage_text { "usage: %s [-i] [-e] [-h] [+line_number] [file(s)]\n" }
+    usage_opt_i { "       -i   turn off info window\n" }
+    usage_opt_e { "       -e   do not convert tabs to spaces\n" }
+    usage_opt_h { "       -h   do not use highlighting\n" }
+    file_is_dir { "file \"%s\" is a directory" }
+    new_file { "new file \"%s\"" }
+    cant_open_file { "can't open \"%s\"" }
+    file_lines_info { "file \"%s\", %d lines" }
+    finished_reading { "finished reading file \"%s\"" }
+    reading_file { "reading file \"%s\"" }
+    read_only { ", read only" }
+    file_lines_count { "file \"%s\", %d lines" }
+    enter_filename { "enter name of file: " }
+    no_filename_saved { "no filename entered: file not saved" }
+    changes_made_sure { "changes have been made, are you sure? (y/n [n]) " }
+    yes_char { "y" }
+    file_exists_overwrite { "file already exists, overwrite? (y/n) [n] " }
+    unable_to_create { "unable to create file \"%s\"" }
+    writing_file { "writing file \"%s\"" }
+    file_written_info { "\"%s\" %d lines, %d characters" }
+    searching { "           ...searching" }
+    string_not_found { "string \"%s\" not found" }
+    could_not_exec { "could not exec %s\n" }
+    press_return { "press return to continue " }
+    press_esc_cancel { "press Esc to cancel" }
+    menu_too_large { "menu too large for window" }
+    press_any_key { "press any key to continue " }
+    shell_command_prompt { "shell command: " }
+    formatting_paragraph { "...formatting paragraph..." }
+    spell_header { "<!echo 'list of unrecognized words'; echo -=-=-=-=-=-" }
+    sending_to_spell { "sending contents of edit buffer to 'spell'" }
+    right_margin_info { "right margin is: " }
+    restricted_mode_error { "restricted mode: unable to perform requested operation" }
+    state_on { "ON" }
+    state_off { "OFF" }
+    cmd_help { "HELP" }
+    cmd_write { "WRITE" }
+    cmd_read { "READ" }
+    cmd_line { "LINE" }
+    cmd_file { "FILE" }
+    cmd_character { "CHARACTER" }
+    cmd_redraw { "REDRAW" }
+    cmd_resequence { "RESEQUENCE" }
+    cmd_author { "AUTHOR" }
+    cmd_version { "VERSION" }
+    cmd_case { "CASE" }
+    cmd_nocase { "NOCASE" }
+    cmd_expand { "EXPAND" }
+    cmd_noexpand { "NOEXPAND" }
+    cmd_exit { "EXIT" }
+    cmd_quit { "QUIT" }
+    cmd_info { "INFO" }
+    cmd_noinfo { "NOINFO" }
+    cmd_margins { "MARGINS" }
+    cmd_nomargins { "NOMARGINS" }
+    cmd_autoformat { "AUTOFORMAT" }
+    cmd_noautoformat { "NOAUTOFORMAT" }
+    cmd_echo { "ECHO" }
+    cmd_printcommand { "PRINTCOMMAND" }
+    cmd_rightmargin { "RIGHTMARGIN" }
+    cmd_highlight { "HIGHLIGHT" }
+    cmd_nohighlight { "NOHIGHLIGHT" }
+    cmd_eightbit { "EIGHTBIT" }
+    cmd_noeightbit { "NOEIGHTBIT" }
+    emacs_key_bindings { "emacs key bindings   " }
+    emacs_help_1 { "^a beginning of line    ^i tab                  ^r restore word            " }
+    emacs_help_2 { "^b back 1 char          ^j undel char           ^t top of text             " }
+    emacs_help_3 { "^c command              ^k delete line          ^u bottom of text          " }
+    emacs_help_4 { "^d delete char          ^l undelete line        ^v next page               " }
+    emacs_help_5 { "^e end of line          ^m newline              ^w delete word             " }
+    emacs_help_6 { "^f forward 1 char       ^n next line            ^x search                  " }
+    emacs_help_7 { "^g go back 1 page       ^o ascii char insert    ^y search prompt           " }
+    emacs_help_8 { "^h backspace            ^p prev line            ^z next word               " }
+    emacs_control_1 { "^[ (escape) menu  ^y search prompt  ^k delete line   ^p prev li   ^g prev page" }
+    emacs_control_2 { "^o ascii code     ^x search         ^l undelete line ^n next li   ^v next page" }
+    emacs_control_3 { "^u end of file    ^a begin of line  ^w delete word   ^b back 1 char           " }
+    emacs_control_4 { "^t top of text    ^e end of line    ^r restore word  ^f forward 1 char        " }
+    emacs_control_5 { "^c command        ^d delete char    ^j undelete char ^z next word              " }
+    cmd_emacs { "EMACS" }
+    cmd_noemacs { "NOEMACS" }
+    usage_line_num { "       +#   put cursor at line #\n" }
+    config_err_msg { "unable to open .init.ee for writing, no configuration saved!" }
+    config_saved_msg { "ee configuration saved in file %s" }
+    save_editor_config { "save editor configuration" }
+    save_ee_config { "save ee configuration" }
+    save_current_dir { "save in current directory" }
+    save_home_dir { "save in home directory" }
+    config_not_saved { "ee configuration not saved" }
+    ree_no_file { "must specify a file when invoking ree" }
+    menu_too_large_alt { "menu too large for window" }
+    more_above { "^^more^^" }
+    more_below { "VVmoreVV" }
+    sixteen_bit_chars { "16 bit characters    " }
+    cmd_16bit { "16BIT" }
+    cmd_no16bit { "NO16BIT" }
+    
+    // New 1.6.0 strings
+    bind_cmd { "BIND" }
+    gbind_cmd { "GBIND" }
+    ebind_cmd { "EBIND" }
+    gold_keys_1 { "Esc menu   ^P prev buff  ^V forward  ^R reverse  ^X fmt parag" }
+    gold_keys_2 { "^E search  ^W und word   ^K und line ^Z repl prmpt ^B append ^K und char" }
+}

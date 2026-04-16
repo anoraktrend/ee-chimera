@@ -5720,12 +5720,9 @@ int unique_test(char *string, char *list[]) {
 }
 
 #ifdef HAS_ICU
-char *catgetlocal(int number, char *string) {
+char *catgetlocal(const char *key, char *string) {
   if (icu_bundle == nullptr)
     return string;
-
-  char key[32];
-  sprintf(key, "msg_%d", number);
 
   UErrorCode status = U_ZERO_ERROR;
   int32_t len;
@@ -5748,7 +5745,7 @@ char *catgetlocal(int number, char *string) {
   return string;
 }
 #else
-char *catgetlocal(int number, char *string) { return string; }
+char *catgetlocal(const char *key, char *string) { return string; }
 #endif /* HAS_ICU */
 
 /*
@@ -5858,216 +5855,216 @@ static void strings_init() {
   setlocale(LC_ALL, "");
 #ifdef HAS_ICU
   UErrorCode status = U_ZERO_ERROR;
-  icu_bundle = ures_open(nullptr, uloc_getDefault(), &status);
+  icu_bundle = ures_open(".", uloc_getDefault(), &status);
 #endif
 
-  modes_menu[0].item_string = catgetlocal(1, "modes menu");
-  mode_strings[1] = catgetlocal(2, "tabs to spaces       ");
-  mode_strings[2] = catgetlocal(3, "case sensitive search");
-  mode_strings[3] = catgetlocal(4, "margins observed     ");
-  mode_strings[4] = catgetlocal(5, "auto-paragraph format");
-  mode_strings[5] = catgetlocal(6, "eightbit characters  ");
-  mode_strings[6] = catgetlocal(7, "info window          ");
-  mode_strings[8] = catgetlocal(8, "right margin         ");
-  leave_menu[0].item_string = catgetlocal(9, "leave menu");
-  leave_menu[1].item_string = catgetlocal(10, "save changes");
-  leave_menu[2].item_string = catgetlocal(11, "no save");
-  file_menu[0].item_string = catgetlocal(12, "file menu");
-  file_menu[1].item_string = catgetlocal(13, "read a file");
-  file_menu[2].item_string = catgetlocal(14, "write a file");
-  file_menu[3].item_string = catgetlocal(15, "save file");
-  file_menu[4].item_string = catgetlocal(16, "print editor contents");
-  search_menu[0].item_string = catgetlocal(17, "search menu");
-  search_menu[1].item_string = catgetlocal(18, "search for ...");
-  search_menu[2].item_string = catgetlocal(19, "search");
-  spell_menu[0].item_string = catgetlocal(20, "spell menu");
-  spell_menu[1].item_string = catgetlocal(21, "use 'spell'");
-  spell_menu[2].item_string = catgetlocal(22, "use 'ispell'");
-  misc_menu[0].item_string = catgetlocal(23, "miscellaneous menu");
-  misc_menu[1].item_string = catgetlocal(24, "format paragraph");
-  misc_menu[2].item_string = catgetlocal(25, "shell command");
-  misc_menu[3].item_string = catgetlocal(26, "check spelling");
-  main_menu[0].item_string = catgetlocal(27, "main menu");
-  main_menu[1].item_string = catgetlocal(28, "leave editor");
-  main_menu[2].item_string = catgetlocal(29, "help");
-  main_menu[3].item_string = catgetlocal(30, "file operations");
-  main_menu[4].item_string = catgetlocal(31, "redraw screen");
-  main_menu[5].item_string = catgetlocal(32, "settings");
-  main_menu[6].item_string = catgetlocal(33, "search");
-  main_menu[7].item_string = catgetlocal(34, "miscellaneous");
-  help_text[0] = catgetlocal(35, "Control keys:                                "
+  modes_menu[0].item_string = catgetlocal("modes_menu", "modes menu");
+  mode_strings[1] = catgetlocal("tabs_to_spaces", "tabs to spaces       ");
+  mode_strings[2] = catgetlocal("case_sensitive_search", "case sensitive search");
+  mode_strings[3] = catgetlocal("margins_observed", "margins observed     ");
+  mode_strings[4] = catgetlocal("auto_paragraph_format", "auto-paragraph format");
+  mode_strings[5] = catgetlocal("eightbit_characters", "eightbit characters  ");
+  mode_strings[6] = catgetlocal("info_window_toggle", "info window          ");
+  mode_strings[8] = catgetlocal("right_margin_toggle", "right margin         ");
+  leave_menu[0].item_string = catgetlocal("leave_menu", "leave menu");
+  leave_menu[1].item_string = catgetlocal("save_changes", "save changes");
+  leave_menu[2].item_string = catgetlocal("no_save", "no save");
+  file_menu[0].item_string = catgetlocal("file_menu", "file menu");
+  file_menu[1].item_string = catgetlocal("read_file", "read a file");
+  file_menu[2].item_string = catgetlocal("write_file", "write a file");
+  file_menu[3].item_string = catgetlocal("save_file", "save file");
+  file_menu[4].item_string = catgetlocal("print_contents", "print editor contents");
+  search_menu[0].item_string = catgetlocal("search_menu", "search menu");
+  search_menu[1].item_string = catgetlocal("search_for_prompt", "search for ...");
+  search_menu[2].item_string = catgetlocal("search_cmd", "search");
+  spell_menu[0].item_string = catgetlocal("spell_menu", "spell menu");
+  spell_menu[1].item_string = catgetlocal("use_spell", "use 'spell'");
+  spell_menu[2].item_string = catgetlocal("use_ispell", "use 'ispell'");
+  misc_menu[0].item_string = catgetlocal("misc_menu", "miscellaneous menu");
+  misc_menu[1].item_string = catgetlocal("format_paragraph", "format paragraph");
+  misc_menu[2].item_string = catgetlocal("shell_command", "shell command");
+  misc_menu[3].item_string = catgetlocal("check_spelling", "check spelling");
+  main_menu[0].item_string = catgetlocal("main_menu", "main menu");
+  main_menu[1].item_string = catgetlocal("leave_editor", "leave editor");
+  main_menu[2].item_string = catgetlocal("help_cmd", "help");
+  main_menu[3].item_string = catgetlocal("file_operations", "file operations");
+  main_menu[4].item_string = catgetlocal("redraw_screen", "redraw screen");
+  main_menu[5].item_string = catgetlocal("settings", "settings");
+  main_menu[6].item_string = catgetlocal("search", "search");
+  main_menu[7].item_string = catgetlocal("miscellaneous", "miscellaneous");
+  help_text[0] = catgetlocal("control_keys_header", "Control keys:                                "
                                  "                              ");
-  help_text[1] = catgetlocal(36, "^a ascii code           ^i tab               "
+  help_text[1] = catgetlocal("help_text_1", "^a ascii code           ^i tab               "
                                  "   ^r right                   ");
-  help_text[2] = catgetlocal(37, "^b bottom of text       ^j newline           "
+  help_text[2] = catgetlocal("help_text_2", "^b bottom of text       ^j newline           "
                                  "   ^t top of text             ");
-  help_text[3] = catgetlocal(38, "^c command              ^k delete char       "
+  help_text[3] = catgetlocal("help_text_3", "^c command              ^k delete char       "
                                  "   ^u up                      ");
-  help_text[4] = catgetlocal(39, "^d down                 ^l left              "
+  help_text[4] = catgetlocal("help_text_4", "^d down                 ^l left              "
                                  "   ^v undelete word           ");
-  help_text[5] = catgetlocal(40, "^e search prompt        ^m newline           "
+  help_text[5] = catgetlocal("help_text_5", "^e search prompt        ^m newline           "
                                  "   ^w delete word             ");
-  help_text[6] = catgetlocal(41, "^f undelete char        ^n next page         "
+  help_text[6] = catgetlocal("help_text_6", "^f undelete char        ^n next page         "
                                  "   ^x search                  ");
-  help_text[7] = catgetlocal(42, "^g begin of line        ^o end of line       "
+  help_text[7] = catgetlocal("help_text_7", "^g begin of line        ^o end of line       "
                                  "   ^y delete line             ");
-  help_text[8] = catgetlocal(43, "^h backspace            ^p prev page         "
+  help_text[8] = catgetlocal("help_text_8", "^h backspace            ^p prev page         "
                                  "   ^z undelete line           ");
-  help_text[9] = catgetlocal(44, "^[ (escape) menu        ESC-Enter: exit ee   "
+  help_text[9] = catgetlocal("help_text_9", "^[ (escape) menu        ESC-Enter: exit ee   "
                                  "                              ");
-  help_text[10] = catgetlocal(45, "                                            "
-                                  "                               ");
-  help_text[11] = catgetlocal(46, "Commands:                                   "
-                                  "                               ");
-  help_text[12] = catgetlocal(47, "help    : get this info                 "
+  help_text[10] = catgetlocal("help_text_blank", "                                            "
+                                  "                              ");
+  help_text[11] = catgetlocal("commands_header", "Commands:                                   "
+                                  "                              ");
+  help_text[12] = catgetlocal("commands_help_1", "help    : get this info                 "
                                   "file    : print file name          ");
-  help_text[13] = catgetlocal(48, "read    : read a file                   "
+  help_text[13] = catgetlocal("commands_help_2", "read    : read a file                   "
                                   "char    : ascii code of char       ");
-  help_text[14] = catgetlocal(49, "write   : write a file                  "
+  help_text[14] = catgetlocal("commands_help_3", "write   : write a file                  "
                                   "case    : case sensitive search    ");
-  help_text[15] = catgetlocal(50, "                                        "
+  help_text[15] = catgetlocal("commands_help_4", "                                        "
                                   "nocase  : case insensitive search  ");
-  help_text[16] = catgetlocal(51, "                                        "
+  help_text[16] = catgetlocal("commands_help_5", "                                        "
                                   "!cmd    : execute \"cmd\" in shell   ");
-  help_text[17] = catgetlocal(52, "line    : display line #                0-9 "
+  help_text[17] = catgetlocal("commands_help_6", "line    : display line #                0-9 "
                                   "    : go to line \"#\"           ");
-  help_text[18] = catgetlocal(53, "expand  : expand tabs                   "
+  help_text[18] = catgetlocal("commands_help_7", "expand  : expand tabs                   "
                                   "noexpand: do not expand tabs         ");
-  help_text[19] = catgetlocal(54, "                                            "
+  help_text[19] = catgetlocal("commands_help_8", "                                            "
                                   "                                 ");
-  help_text[20] = catgetlocal(55, "  ee [+#] [-i] [-e] [-h] [file(s)]          "
+  help_text[20] = catgetlocal("usage_summary", "  ee [+#] [-i] [-e] [-h] [file(s)]          "
                                   "                                  ");
-  help_text[21] = catgetlocal(56, "+# :go to line #  -i :no info window  -e : "
+  help_text[21] = catgetlocal("usage_options", "+# :go to line #  -i :no info window  -e : "
                                   "don't expand tabs  -h :no highlight");
   update_help_strings();
 
   command_strings[0] =
-      catgetlocal(62, "help : get help info  |file  : print file name         "
+      catgetlocal("command_strings_1", "help : get help info  |file  : print file name         "
                       "|line : print line # ");
   command_strings[1] =
-      catgetlocal(63, "read : read a file    |char  : ascii code of char      "
+      catgetlocal("command_strings_2", "read : read a file    |char  : ascii code of char      "
                       "|0-9 : go to line \"#\"");
   command_strings[2] =
-      catgetlocal(64, "write: write a file   |case  : case sensitive search   "
+      catgetlocal("command_strings_3", "write: write a file   |case  : case sensitive search   "
                       "|exit : leave and save ");
   command_strings[3] =
-      catgetlocal(65, "!cmd : shell \"cmd\"    |nocase: ignore case in search  "
+      catgetlocal("command_strings_4", "!cmd : shell \"cmd\"    |nocase: ignore case in search  "
                       " |quit : leave, no save");
   command_strings[4] =
-      catgetlocal(66, "expand: expand tabs   |noexpand: do not expand tabs     "
+      catgetlocal("command_strings_5", "expand: expand tabs   |noexpand: do not expand tabs     "
                       "                      ");
-  com_win_message = catgetlocal(67, "    press Escape (^[) for menu");
-  no_file_string = catgetlocal(68, "no file");
-  ascii_code_str = catgetlocal(69, "ascii code: ");
-  printer_msg_str = catgetlocal(70, "sending contents of buffer to \"%s\" ");
-  command_str = catgetlocal(71, "command: ");
-  file_write_prompt_str = catgetlocal(72, "name of file to write: ");
-  file_read_prompt_str = catgetlocal(73, "name of file to read: ");
-  char_str = catgetlocal(74, "character = %d");
-  unkn_cmd_str = catgetlocal(75, "unknown command \"%s\"");
-  non_unique_cmd_msg = catgetlocal(76, "entered command is not unique");
-  line_num_str = catgetlocal(77, "line %d  ");
-  line_len_str = catgetlocal(78, "length = %d");
-  current_file_str = catgetlocal(79, "current file is \"%s\" ");
+  com_win_message = catgetlocal("press_esc_for_menu", "    press Escape (^[) for menu");
+  no_file_string = catgetlocal("no_file", "no file");
+  ascii_code_str = catgetlocal("ascii_code_prompt", "ascii code: ");
+  printer_msg_str = catgetlocal("sending_to_printer", "sending contents of buffer to \"%s\" ");
+  command_str = catgetlocal("command_prompt", "command: ");
+  file_write_prompt_str = catgetlocal("file_write_prompt", "name of file to write: ");
+  file_read_prompt_str = catgetlocal("file_read_prompt", "name of file to read: ");
+  char_str = catgetlocal("character_info", "character = %d");
+  unkn_cmd_str = catgetlocal("unknown_command", "unknown command \"%s\"");
+  non_unique_cmd_msg = catgetlocal("command_not_unique", "entered command is not unique");
+  line_num_str = catgetlocal("line_info", "line %d  ");
+  line_len_str = catgetlocal("length_info", "length = %d");
+  current_file_str = catgetlocal("current_file_info", "current file is \"%s\" ");
   usage0 =
-      catgetlocal(80, "usage: %s [-i] [-e] [-h] [+line_number] [file(s)]\n");
-  usage1 = catgetlocal(81, "       -i   turn off info window\n");
-  usage2 = catgetlocal(82, "       -e   do not convert tabs to spaces\n");
-  usage3 = catgetlocal(83, "       -h   do not use highlighting\n");
-  file_is_dir_msg = catgetlocal(84, "file \"%s\" is a directory");
-  new_file_msg = catgetlocal(85, "new file \"%s\"");
-  cant_open_msg = catgetlocal(86, "can't open \"%s\"");
-  open_file_msg = catgetlocal(87, "file \"%s\", %d lines");
-  file_read_fin_msg = catgetlocal(88, "finished reading file \"%s\"");
-  reading_file_msg = catgetlocal(89, "reading file \"%s\"");
-  read_only_msg = catgetlocal(90, ", read only");
-  file_read_lines_msg = catgetlocal(91, "file \"%s\", %d lines");
-  save_file_name_prompt = catgetlocal(92, "enter name of file: ");
-  file_not_saved_msg = catgetlocal(93, "no filename entered: file not saved");
+      catgetlocal("usage_text", "usage: %s [-i] [-e] [-h] [+line_number] [file(s)]\n");
+  usage1 = catgetlocal("usage_opt_i", "       -i   turn off info window\n");
+  usage2 = catgetlocal("usage_opt_e", "       -e   do not convert tabs to spaces\n");
+  usage3 = catgetlocal("usage_opt_h", "       -h   do not use highlighting\n");
+  file_is_dir_msg = catgetlocal("file_is_dir", "file \"%s\" is a directory");
+  new_file_msg = catgetlocal("new_file", "new file \"%s\"");
+  cant_open_msg = catgetlocal("cant_open_file", "can't open \"%s\"");
+  open_file_msg = catgetlocal("file_lines_info", "file \"%s\", %d lines");
+  file_read_fin_msg = catgetlocal("finished_reading", "finished reading file \"%s\"");
+  reading_file_msg = catgetlocal("reading_file", "reading file \"%s\"");
+  read_only_msg = catgetlocal("read_only", ", read only");
+  file_read_lines_msg = catgetlocal("file_lines_count", "file \"%s\", %d lines");
+  save_file_name_prompt = catgetlocal("enter_filename", "enter name of file: ");
+  file_not_saved_msg = catgetlocal("no_filename_saved", "no filename entered: file not saved");
   changes_made_prompt =
-      catgetlocal(94, "changes have been made, are you sure? (y/n [n]) ");
-  yes_char = catgetlocal(95, "y");
+      catgetlocal("changes_made_sure", "changes have been made, are you sure? (y/n [n]) ");
+  yes_char = catgetlocal("yes_char", "y");
   file_exists_prompt =
-      catgetlocal(96, "file already exists, overwrite? (y/n) [n] ");
-  create_file_fail_msg = catgetlocal(97, "unable to create file \"%s\"");
-  writing_file_msg = catgetlocal(98, "writing file \"%s\"");
-  file_written_msg = catgetlocal(99, "\"%s\" %d lines, %d characters");
-  searching_msg = catgetlocal(100, "           ...searching");
-  str_not_found_msg = catgetlocal(101, "string \"%s\" not found");
-  search_prompt_str = catgetlocal(102, "search for: ");
-  exec_err_msg = catgetlocal(103, "could not exec %s\n");
-  continue_msg = catgetlocal(104, "press return to continue ");
-  menu_cancel_msg = catgetlocal(105, "press Esc to cancel");
-  menu_size_err_msg = catgetlocal(106, "menu too large for window");
-  press_any_key_msg = catgetlocal(107, "press any key to continue ");
-  shell_prompt = catgetlocal(108, "shell command: ");
-  formatting_msg = catgetlocal(109, "...formatting paragraph...");
+      catgetlocal("file_exists_overwrite", "file already exists, overwrite? (y/n) [n] ");
+  create_file_fail_msg = catgetlocal("unable_to_create", "unable to create file \"%s\"");
+  writing_file_msg = catgetlocal("writing_file", "writing file \"%s\"");
+  file_written_msg = catgetlocal("file_written_info", "\"%s\" %d lines, %d characters");
+  searching_msg = catgetlocal("searching", "           ...searching");
+  str_not_found_msg = catgetlocal("string_not_found", "string \"%s\" not found");
+  search_prompt_str = catgetlocal("search_for_prompt", "search for: ");
+  exec_err_msg = catgetlocal("could_not_exec", "could not exec %s\n");
+  continue_msg = catgetlocal("press_return", "press return to continue ");
+  menu_cancel_msg = catgetlocal("press_esc_cancel", "press Esc to cancel");
+  menu_size_err_msg = catgetlocal("menu_too_large", "menu too large for window");
+  press_any_key_msg = catgetlocal("press_any_key", "press any key to continue ");
+  shell_prompt = catgetlocal("shell_command_prompt", "shell command: ");
+  formatting_msg = catgetlocal("formatting_paragraph", "...formatting paragraph...");
   shell_echo_msg =
-      catgetlocal(110, "<!echo 'list of unrecognized words'; echo -=-=-=-=-=-");
+      catgetlocal("spell_header", "<!echo 'list of unrecognized words'; echo -=-=-=-=-=-");
   spell_in_prog_msg =
-      catgetlocal(111, "sending contents of edit buffer to 'spell'");
-  margin_prompt = catgetlocal(112, "right margin is: ");
-  restricted_msg = catgetlocal(
-      113, "restricted mode: unable to perform requested operation");
-  STATE_ON = catgetlocal(114, "ON");
-  STATE_OFF = catgetlocal(115, "OFF");
-  HELP = catgetlocal(116, "HELP");
-  WRITE = catgetlocal(117, "WRITE");
-  READ = catgetlocal(118, "READ");
-  LINE = catgetlocal(119, "LINE");
-  FILE_str = catgetlocal(120, "FILE");
-  CHARACTER = catgetlocal(121, "CHARACTER");
-  REDRAW = catgetlocal(122, "REDRAW");
-  RESEQUENCE = catgetlocal(123, "RESEQUENCE");
-  AUTHOR = catgetlocal(124, "AUTHOR");
-  VERSION = catgetlocal(125, "VERSION");
-  CASE = catgetlocal(126, "CASE");
-  NOCASE = catgetlocal(127, "NOCASE");
-  EXPAND = catgetlocal(128, "EXPAND");
-  NOEXPAND = catgetlocal(129, "NOEXPAND");
-  Exit_string = catgetlocal(130, "EXIT");
-  QUIT_string = catgetlocal(131, "QUIT");
-  INFO = catgetlocal(132, "INFO");
-  NOINFO = catgetlocal(133, "NOINFO");
-  MARGINS = catgetlocal(134, "MARGINS");
-  NOMARGINS = catgetlocal(135, "NOMARGINS");
-  AUTOFORMAT = catgetlocal(136, "AUTOFORMAT");
-  NOAUTOFORMAT = catgetlocal(137, "NOAUTOFORMAT");
-  Echo = catgetlocal(138, "ECHO");
-  PRINTCOMMAND = catgetlocal(139, "PRINTCOMMAND");
-  RIGHTMARGIN = catgetlocal(140, "RIGHTMARGIN");
-  HIGHLIGHT = catgetlocal(141, "HIGHLIGHT");
-  NOHIGHLIGHT = catgetlocal(142, "NOHIGHLIGHT");
-  EIGHTBIT = catgetlocal(143, "EIGHTBIT");
-  NOEIGHTBIT = catgetlocal(144, "NOEIGHTBIT");
+      catgetlocal("sending_to_spell", "sending contents of edit buffer to 'spell'");
+  margin_prompt = catgetlocal("right_margin_info", "right margin is: ");
+  restricted_msg = catgetlocal("restricted_mode_error",
+      "restricted mode: unable to perform requested operation");
+  STATE_ON = catgetlocal("state_on", "ON");
+  STATE_OFF = catgetlocal("state_off", "OFF");
+  HELP = catgetlocal("cmd_help", "HELP");
+  WRITE = catgetlocal("cmd_write", "WRITE");
+  READ = catgetlocal("cmd_read", "READ");
+  LINE = catgetlocal("cmd_line", "LINE");
+  FILE_str = catgetlocal("cmd_file", "FILE");
+  CHARACTER = catgetlocal("cmd_character", "CHARACTER");
+  REDRAW = catgetlocal("cmd_redraw", "REDRAW");
+  RESEQUENCE = catgetlocal("cmd_resequence", "RESEQUENCE");
+  AUTHOR = catgetlocal("cmd_author", "AUTHOR");
+  VERSION = catgetlocal("cmd_version", "VERSION");
+  CASE = catgetlocal("cmd_case", "CASE");
+  NOCASE = catgetlocal("cmd_nocase", "NOCASE");
+  EXPAND = catgetlocal("cmd_expand", "EXPAND");
+  NOEXPAND = catgetlocal("cmd_noexpand", "NOEXPAND");
+  Exit_string = catgetlocal("cmd_exit", "EXIT");
+  QUIT_string = catgetlocal("cmd_quit", "QUIT");
+  INFO = catgetlocal("cmd_info", "INFO");
+  NOINFO = catgetlocal("cmd_noinfo", "NOINFO");
+  MARGINS = catgetlocal("cmd_margins", "MARGINS");
+  NOMARGINS = catgetlocal("cmd_nomargins", "NOMARGINS");
+  AUTOFORMAT = catgetlocal("cmd_autoformat", "AUTOFORMAT");
+  NOAUTOFORMAT = catgetlocal("cmd_noautoformat", "NOAUTOFORMAT");
+  Echo = catgetlocal("cmd_echo", "ECHO");
+  PRINTCOMMAND = catgetlocal("cmd_printcommand", "PRINTCOMMAND");
+  RIGHTMARGIN = catgetlocal("cmd_rightmargin", "RIGHTMARGIN");
+  HIGHLIGHT = catgetlocal("cmd_highlight", "HIGHLIGHT");
+  NOHIGHLIGHT = catgetlocal("cmd_nohighlight", "NOHIGHLIGHT");
+  EIGHTBIT = catgetlocal("cmd_eightbit", "EIGHTBIT");
+  NOEIGHTBIT = catgetlocal("cmd_noeightbit", "NOEIGHTBIT");
   /*
    |	additions
    */
-  mode_strings[7] = catgetlocal(145, "emacs key bindings   ");
+  mode_strings[7] = catgetlocal("emacs_key_bindings", "emacs key bindings   ");
   emacs_help_text[0] = help_text[0];
   emacs_help_text[1] =
-      catgetlocal(146, "^a beginning of line    ^i tab                  ^r "
+      catgetlocal("emacs_help_1", "^a beginning of line    ^i tab                  ^r "
                        "restore word            ");
   emacs_help_text[2] =
-      catgetlocal(147, "^b back 1 char          ^j undel char           ^t top "
+      catgetlocal("emacs_help_2", "^b back 1 char          ^j undel char           ^t top "
                        "of text             ");
   emacs_help_text[3] =
-      catgetlocal(148, "^c command              ^k delete line          ^u "
+      catgetlocal("emacs_help_3", "^c command              ^k delete line          ^u "
                        "bottom of text          ");
   emacs_help_text[4] =
-      catgetlocal(149, "^d delete char          ^l undelete line        ^v "
+      catgetlocal("emacs_help_4", "^d delete char          ^l undelete line        ^v "
                        "next page               ");
   emacs_help_text[5] =
-      catgetlocal(150, "^e end of line          ^m newline              ^w "
+      catgetlocal("emacs_help_5", "^e end of line          ^m newline              ^w "
                        "delete word             ");
   emacs_help_text[6] =
-      catgetlocal(151, "^f forward 1 char       ^n next line            ^x "
+      catgetlocal("emacs_help_6", "^f forward 1 char       ^n next line            ^x "
                        "search                  ");
   emacs_help_text[7] =
-      catgetlocal(152, "^g go back 1 page       ^o ascii char insert    ^y "
+      catgetlocal("emacs_help_7", "^g go back 1 page       ^o ascii char insert    ^y "
                        "search prompt           ");
   emacs_help_text[8] =
-      catgetlocal(153, "^h backspace            ^p prev line            ^z "
+      catgetlocal("emacs_help_8", "^h backspace            ^p prev line            ^z "
                        "next word               ");
   emacs_help_text[9] = help_text[9];
   emacs_help_text[10] = help_text[10];
@@ -6083,42 +6080,42 @@ static void strings_init() {
   emacs_help_text[20] = help_text[20];
   emacs_help_text[21] = help_text[21];
   emacs_control_keys[0] =
-      catgetlocal(154, "^[ (escape) menu ^y search prompt ^k delete line   ^p "
+      catgetlocal("emacs_control_1", "^[ (escape) menu ^y search prompt ^k delete line   ^p "
                        "prev li     ^g prev page");
   emacs_control_keys[1] =
-      catgetlocal(155, "^o ascii code    ^x search        ^l undelete line ^n "
+      catgetlocal("emacs_control_2", "^o ascii code    ^x search        ^l undelete line ^n "
                        "next li     ^v next page");
   emacs_control_keys[2] =
-      catgetlocal(156, "^u end of file   ^a begin of line ^w delete word   ^b "
+      catgetlocal("emacs_control_3", "^u end of file    ^a begin of line  ^w delete word   ^b "
                        "back 1 char ^z next word");
   emacs_control_keys[3] =
-      catgetlocal(157, "^t top of text   ^e end of line   ^r restore word  ^f "
+      catgetlocal("emacs_control_4", "^t top of text    ^e end of line    ^r restore word  ^f "
                        "forward char            ");
   emacs_control_keys[4] =
-      catgetlocal(158, "^c command       ^d delete char   ^j undelete char     "
+      catgetlocal("emacs_control_5", "^c command        ^d delete char    ^j undelete char     "
                        "                         ");
-  EMACS_string = catgetlocal(159, "EMACS");
-  NOEMACS_string = catgetlocal(160, "NOEMACS");
-  BIND = catgetlocal(191, "BIND");
-  GBIND = catgetlocal(192, "GBIND");
-  EBIND = catgetlocal(193, "EBIND");
-  usage4 = catgetlocal(161, "       +#   put cursor at line #\n");
+  EMACS_string = catgetlocal("cmd_emacs", "EMACS");
+  NOEMACS_string = catgetlocal("cmd_noemacs", "NOEMACS");
+  BIND = catgetlocal("bind_cmd", "BIND");
+  GBIND = catgetlocal("gbind_cmd", "GBIND");
+  EBIND = catgetlocal("ebind_cmd", "EBIND");
+  usage4 = catgetlocal("usage_line_num", "       +#   put cursor at line #\n");
   conf_dump_err_msg = catgetlocal(
-      162, "unable to open .init.ee for writing, no configuration saved!");
-  conf_dump_success_msg = catgetlocal(163, "ee configuration saved in file %s");
-  modes_menu[10].item_string = catgetlocal(164, "save editor configuration");
-  config_dump_menu[0].item_string = catgetlocal(165, "save ee configuration");
+      "config_err_msg", "unable to open .init.ee for writing, no configuration saved!");
+  conf_dump_success_msg = catgetlocal("config_saved_msg", "ee configuration saved in file %s");
+  modes_menu[10].item_string = catgetlocal("save_editor_config", "save editor configuration");
+  config_dump_menu[0].item_string = catgetlocal("save_ee_config", "save ee configuration");
   config_dump_menu[1].item_string =
-      catgetlocal(166, "save in current directory");
-  config_dump_menu[2].item_string = catgetlocal(167, "save in home directory");
-  conf_not_saved_msg = catgetlocal(168, "ee configuration not saved");
-  ree_no_file_msg = catgetlocal(169, "must specify a file when invoking ree");
-  menu_too_lrg_msg = catgetlocal(180, "menu too large for window");
-  more_above_str = catgetlocal(181, "^^more^^");
-  more_below_str = catgetlocal(182, "VVmoreVV");
-  mode_strings[9] = catgetlocal(183, "16 bit characters    ");
-  chinese_cmd = catgetlocal(184, "16BIT");
-  nochinese_cmd = catgetlocal(185, "NO16BIT");
+      catgetlocal("save_current_dir", "save in current directory");
+  config_dump_menu[2].item_string = catgetlocal("save_home_dir", "save in home directory");
+  conf_not_saved_msg = catgetlocal("config_not_saved", "ee configuration not saved");
+  ree_no_file_msg = catgetlocal("ree_no_file", "must specify a file when invoking ree");
+  menu_too_lrg_msg = catgetlocal("menu_too_large_alt", "menu too large for window");
+  more_above_str = catgetlocal("more_above", "^^more^^");
+  more_below_str = catgetlocal("more_below", "VVmoreVV");
+  mode_strings[9] = catgetlocal("sixteen_bit_chars", "16 bit characters    ");
+  chinese_cmd = catgetlocal("cmd_16bit", "16BIT");
+  nochinese_cmd = catgetlocal("cmd_no16bit", "NO16BIT");
 
   commands[0] = HELP;
   commands[1] = WRITE;
