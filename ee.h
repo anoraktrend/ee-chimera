@@ -24,6 +24,7 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <tree_sitter/api.h>
 #include <unistd.h>
 
@@ -120,8 +121,7 @@ static void prev_word(void);
 void right(int disp);
 void insert_line(int disp);
 void midscreen(int line, unsigned char *pnt);
-static void draw_line(int vertical, int horiz, unsigned char *ptr, int t_pos,
-                      int length);
+static void draw_line(int vertical, int horiz, struct text *line, int t_pos);
 void scanline(const unsigned char *pos);
 void left(int disp);
 int tabshift(int temp_int);
@@ -172,6 +172,8 @@ static void paint_menu(struct menu_entries menu_list[], int max_width,
 /* | New Operations */
 void set_mark(void);
 void copy_region(bool cut);
+void append_region(bool cut);
 void paste_region(void);
 void replace_prompt(void);
+int search_reverse(int display_message);
 #endif /* EE_H */

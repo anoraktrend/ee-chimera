@@ -131,6 +131,16 @@ static struct text *mark_line = nullptr;
 static int mark_position = 0;
 static char *clipboard_buf = nullptr;
 
+static int char_len_table[256] = {
+    [0 ... 8] = 2,   [9] = -1,        [10 ... 31] = 2, [32 ... 126] = 1,
+    [127] = 2,       [128 ... 255] = 1};
+
+static void update_line_numbers(struct text *line, int delta);
+static struct text *find_next_recursive(struct text *line, int count,
+                                        int *actual_count);
+static struct text *find_prev_recursive(struct text *line, int count,
+                                        int *actual_count);
+
 const TSLanguage *tree_sitter_c(void);
 
 // Tree-Sitter Globals
@@ -353,13 +363,13 @@ enum { TAB = 9 };
   ({                                                                           \
     typeof(a) _a = (a);                                                        \
     typeof(b) _b = (b);                                                        \
-    _a > _b ? _a : _b;                                                         \
+    (_a & -(_a > _b)) | (_b & -(_b >= _a));                                    \
   })
 #define min(a, b)                                                              \
   ({                                                                           \
     typeof(a) _a = (a);                                                        \
     typeof(b) _b = (b);                                                        \
-    _a < _b ? _a : _b;                                                         \
+    (_a & -(_a < _b)) | (_b & -(_b <= _a));                                    \
   })
 
 /*
@@ -568,6 +578,7 @@ enum { max_alpha_char = 36 };
  */
 
 char *com_win_message; /* to be shown in com_win if no info window */
+static time_t last_redraw_time = 0;
 char *no_file_string;
 char *ascii_code_str;
 char *printer_msg_str;
@@ -664,6 +675,75 @@ char const *separator =
 char *chinese_cmd;
 char *nochinese_cmd;
 
+/* Control handler wrappers for jump tables */
+static void control_right(void) { right(1); }
+static void control_copy(void) { copy_region(false); }
+static void control_search(void) { search(1); }
+static void control_backspace(void) { delete_char_at_cursor(1); }
+static void control_newline(void) { insert_line(1); }
+static void control_next_page(void) { move_rel('d', max(5, (last_line - 5))); }
+static void control_prev_page(void) { move_rel('u', max(5, (last_line - 5))); }
+static void control_cut(void) { copy_region(true); }
+static void control_main_menu(void) { menu_op(main_menu); }
+static void control_left(void) { left(1); }
+static void control_down(void) { down(); }
+static void control_up(void) { up(); }
+static void control_insert_ascii(void) {
+  char *string = get_string(ascii_code_str, 1);
+  if (*string != '\0') {
+    in = atoi(string);
+    wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+    insert(in);
+  }
+  free(string);
+}
+static void gold_search_reverse(void) { search_reverse(1); }
+static void gold_append(void) { append_region(false); }
+static void gold_toggle(void) {
+  gold = true;
+  if (info_window)
+    paint_info_win();
+}
+static void no_op(void) {}
+
+typedef void (*control_handler)(void);
+
+static control_handler base_control_table[32] = {
+    [1] = control_right,      [2] = bottom,
+    [3] = control_copy,       [4] = bol,
+    [5] = command_prompt,     [6] = control_search,
+    [7] = gold_toggle,        [8] = control_backspace,
+    [10] = control_newline,   [11] = del_char,
+    [12] = del_line,          [13] = control_newline,
+    [14] = control_next_page, [15] = eol,
+    [16] = control_prev_page, [18] = redraw,
+    [20] = top,               [21] = set_mark,
+    [22] = paste_region,      [23] = del_word,
+    [24] = control_cut,       [25] = adv_word,
+    [26] = replace_prompt,    [27] = control_main_menu};
+
+static control_handler gold_control_table[32] = {
+    [2] = gold_append,        [3] = del_line,
+    [6] = search_prompt,      [11] = undel_char,
+    [12] = undel_line,        [18] = gold_search_reverse,
+    [21] = set_mark,          [22] = control_search,
+    [23] = undel_word,        [24] = Format,
+    [25] = prev_word,         [26] = replace_prompt};
+
+static control_handler emacs_control_table[32] = {
+    [1] = bol,                [2] = control_left,
+    [3] = command_prompt,     [4] = del_char,
+    [5] = eol,                [6] = control_right,
+    [7] = control_prev_page,  [8] = control_backspace,
+    [10] = undel_char,        [11] = del_line,
+    [12] = undel_line,        [13] = control_newline,
+    [14] = control_down,      [15] = control_insert_ascii,
+    [16] = control_up,        [18] = undel_word,
+    [20] = top,               [21] = bottom,
+    [22] = control_next_page, [23] = del_word,
+    [24] = control_search,    [25] = search_prompt,
+    [26] = adv_word,          [27] = control_main_menu};
+
 /* beginning of main program          */
 int main(int argc, char *argv[]) {
   int counter;
@@ -742,6 +822,7 @@ int main(int argc, char *argv[]) {
     lsp_open_file((const char *)in_file_name);
   }
 
+  last_redraw_time = time(nullptr);
   while (edit) {
     lsp_poll();
     /*
@@ -754,10 +835,19 @@ int main(int argc, char *argv[]) {
     wrefresh(text_win);
     in = wgetch(text_win);
     if (in == -1) {
-      exit(0);
-    } /* without this exit ee will go into an
-                                          infinite loop if the network
-                                          session detaches */
+      if (errno == EINTR)
+        continue;
+      time_t now = time(nullptr);
+      if (now - last_redraw_time >= 5) {
+        redraw();
+        last_redraw_time = now;
+      }
+      /* If wgetch returns ERR and it's not a timeout (or if we really want to
+       * exit on true EOF/error), we should be careful. Standard curses ERR is
+       * -1. With wtimeout, it returns ERR on timeout. */
+      continue;
+    }
+    last_redraw_time = time(nullptr);
 
     resize_check();
 
@@ -803,16 +893,9 @@ int main(int argc, char *argv[]) {
 
 /* resize the line to length + factor*/
 static unsigned char *resiz_line(int factor, struct text *rline, int rpos) {
-  unsigned char *rpoint;
-  int resiz_var;
-
   rline->max_length += factor;
   rline->line = realloc(rline->line, rline->max_length);
-  rpoint = rline->line;
-  for (resiz_var = 1; (resiz_var < rpos); resiz_var++) {
-    rpoint++;
-  }
-  return rpoint;
+  return rline->line + rpos - 1;
 }
 
 /* insert character into line		*/
@@ -837,15 +920,9 @@ static void insert(int character) {
     point = resiz_line(10, curr_line, position);
   }
   curr_line->line_length++;
-  temp = point;
-  counter = position;
-  while (counter < curr_line->line_length) /* find end of line */
-  {
-    counter++;
-    temp++;
-  }
+  size_t move_len = curr_line->line_length - position;
   /* memmove safely handles overlapping memory regions */
-  memmove(point + 1, point, temp - point);
+  memmove(point + 1, point, move_len);
   *point = character; /* insert new character			*/
   wclrtoeol(text_win);
   if (isprint((unsigned char)character) == 0) /* check for TAB character*/
@@ -889,7 +966,14 @@ static void insert(int character) {
     formatted = false;
   }
 
-  draw_line(scr_vert, scr_horz, point, position, curr_line->line_length);
+  draw_line(scr_vert, scr_horz, curr_line, position);
+}
+
+static void update_line_numbers(struct text *line, int delta) {
+  if (line == nullptr)
+    return;
+  line->line_number += delta;
+  update_line_numbers(line->next_line, delta);
 }
 
 /* delete character		*/
@@ -945,21 +1029,15 @@ void delete_char_at_cursor(int disp) {
       temp_buff->next_line->prev_line = curr_line;
     }
     curr_line->next_line = temp_buff->next_line;
+    update_line_numbers(curr_line->next_line, -1);
     temp2 = temp_buff->line;
     if (in == 8) {
       d_char[0] = '\n';
       d_char[1] = '\0';
     }
-    tp = point;
-    temp_pos = 1;
-    while (temp_pos < temp_buff->line_length) {
-      curr_line->line_length++;
-      temp_pos++;
-      *tp = *temp2;
-      tp++;
-      temp2++;
-    }
-    *tp = '\0';
+    size_t join_len = temp_buff->line_length;
+    memcpy(point, temp2, join_len);
+    curr_line->line_length += join_len - 1;
     free(temp_buff->line);
     free(temp_buff);
     temp_buff = curr_line;
@@ -969,64 +1047,49 @@ void delete_char_at_cursor(int disp) {
       wmove(text_win, scr_vert + 1, 0);
       wdeleteln(text_win);
     }
-    while ((temp_buff != nullptr) && (temp_vert < last_line)) {
-      temp_buff = temp_buff->next_line;
-      temp_vert++;
-    }
+    int lines_to_find = last_line - temp_vert;
+    temp_buff = find_next_recursive(temp_buff, lines_to_find, &temp_vert);
+
     if ((temp_vert == last_line) && (temp_buff != nullptr)) {
       tp = temp_buff->line;
       wmove(text_win, last_line, 0);
       wclrtobot(text_win);
-      draw_line(last_line, 0, tp, 1, temp_buff->line_length);
+      draw_line(last_line, 0, temp_buff, 1);
       wmove(text_win, scr_vert, (scr_horz - horiz_offset));
     }
   }
-  draw_line(scr_vert, scr_horz, point, position, curr_line->line_length);
+  draw_line(scr_vert, scr_horz, curr_line, position);
   formatted = false;
 }
 
-/* find the proper horizontal position for the pointer	*/
-void scanline(const unsigned char *pos) {
-  int temp;
-  unsigned char *ptr;
+static int scanline_step(unsigned char *ptr, const unsigned char *pos, int temp) {
+  if (ptr >= pos)
+    return temp;
+  return scanline_step(ptr + 1, pos, temp + len_char(*ptr, temp));
+}
 
-  ptr = curr_line->line;
-  temp = 0;
-  while (ptr < pos) {
-    if (*ptr <= 8) {
-      temp += 2;
-    } else if (*ptr == 9) {
-      temp += tabshift(temp);
-    } else if ((*ptr >= 10) && (*ptr <= 31)) {
-      temp += 2;
-    } else if ((*ptr >= 32) && (*ptr < 127)) {
-      temp++;
-    } else if (*ptr == 127) {
-      temp += 2;
-    } else if (!eightbit) {
-      temp += 5;
-    } else {
-      temp++;
-    }
-    ptr++;
-  }
-  scr_horz = temp;
-  if ((scr_horz - horiz_offset) > last_col) {
-    horiz_offset = (scr_horz - (scr_horz % 8)) - (COLS - 8);
-    midscreen(scr_vert, point);
-  } else if (scr_horz < horiz_offset) {
-    horiz_offset = max(0, (scr_horz - (scr_horz % 8)));
-    midscreen(scr_vert, point);
+/* find the proper horizontal position for the pointer */
+void scanline(const unsigned char *pos) {
+  scr_horz = scanline_step(curr_line->line, pos, 0);
+
+  int beyond_last = (scr_horz - horiz_offset) > last_col;
+  int below_offset = scr_horz < horiz_offset;
+
+  int new_off_high = (scr_horz - (scr_horz % 8)) - (COLS - 8);
+  int new_off_low = scr_horz - (scr_horz % 8);
+  new_off_low *= (new_off_low > 0);
+
+  horiz_offset = (beyond_last * new_off_high) + (below_offset * new_off_low) +
+                 (!(beyond_last | below_offset) * horiz_offset);
+
+  if (beyond_last | below_offset) {
+    midscreen(scr_vert, (unsigned char *)pos);
   }
 }
 
 /* give the number of spaces to shift	*/
 int tabshift(int temp_int) {
-  int leftover = ((temp_int + 1) % 8);
-  if (leftover == 0) {
-    return 1;
-  }
-  return (9 - leftover);
+  return 8 - (temp_int & 7);
 }
 
 int out_char(WINDOW *window, int character, int column) {
@@ -1071,23 +1134,18 @@ int out_char(WINDOW *window, int character, int column) {
 
 /* return the length of the character   */
 int len_char(int character, int column) {
-  int length;
+  unsigned char c = (unsigned char)character;
+  int len = char_len_table[c];
 
-  if (character == '\t') {
-    length = tabshift(column);
-  } else if ((character >= 0) && (character < 32)) {
-    length = 2;
-  } else if ((character >= 32) && (character <= 126)) {
-    length = 1;
-  } else if (character == 127) {
-    length = 2;
-  } else if (((character > 126) || (character < 0)) && (!eightbit)) {
-    length = 5;
-  } else {
-    length = 1;
-  }
+  // If eightbit is off and it's high-bit, it's 5 (e.g. <255>)
+  bool high_bit_not_127 = (c > 126) & (c != 127);
+  bool replace_with_5 = (!eightbit) & high_bit_not_127;
 
-  return length;
+  len = (replace_with_5 * 5) + (!replace_with_5 * len);
+
+  // Branchless selection for tab: if c is TAB, use tabshift, else use len
+  int is_tab = (c == '\t');
+  return (is_tab * tabshift(column)) + (!is_tab * len);
 }
 
 static int get_node_attribute(int line, int col) {
@@ -1188,8 +1246,7 @@ void lsp_change_file(const char *filename) {
 }
 
 /* redraw line from current position */
-static void draw_line(int vertical, int horiz, unsigned char *ptr, int t_pos,
-                      int length) {
+static void draw_line(int vertical, int horiz, struct text *line, int t_pos) {
   int d;               /* partial length of special or tab char to display  */
   unsigned char *temp; /* temporary pointer to position in line	     */
   int abs_column;      /* offset in screen units from begin of line	     */
@@ -1200,17 +1257,11 @@ static void draw_line(int vertical, int horiz, unsigned char *ptr, int t_pos,
   abs_column = horiz;
   column = horiz - horiz_offset;
   row = vertical;
-  temp = ptr;
+  temp = line->line + t_pos - 1;
   d = 0;
   posit = t_pos;
 
-  // Find line number
-  int line_no = 1;
-  struct text const *l_ptr = first_line;
-  while (l_ptr != nullptr && l_ptr->line != ptr - (t_pos - 1)) {
-    l_ptr = l_ptr->next_line;
-    line_no++;
-  }
+  int line_no = line->line_number;
 
   if (column < 0) {
     wmove(text_win, row, 0);
@@ -1225,7 +1276,7 @@ static void draw_line(int vertical, int horiz, unsigned char *ptr, int t_pos,
   }
   wmove(text_win, row, column);
   wclrtoeol(text_win);
-  while ((posit < length) && (column <= last_col)) {
+  while ((posit < line->line_length) && (column <= last_col)) {
     int attr = get_node_attribute(line_no, posit - 1);
 
     // Check diagnostics
@@ -1279,30 +1330,24 @@ void insert_line(int disp) {
   }
   temp_nod->prev_line = curr_line;
   curr_line->next_line = temp_nod;
+  update_line_numbers(temp_nod->next_line, 1);
   temp_pos2 = position;
   temp = point;
   if (temp_pos2 < curr_line->line_length) {
-    temp_pos = 1;
-    while (temp_pos2 < curr_line->line_length) {
-      if ((temp_nod->max_length - temp_nod->line_length) < 5) {
-        extra = resiz_line(10, temp_nod, temp_pos);
-      }
-      temp_nod->line_length++;
-      temp_pos++;
-      temp_pos2++;
-      *extra = *temp;
-      extra++;
-      temp++;
+    size_t split_len = curr_line->line_length - temp_pos2 + 1;
+    if (split_len > temp_nod->max_length) {
+      temp_nod->max_length = split_len + 10;
+      temp_nod->line = realloc(temp_nod->line, temp_nod->max_length);
     }
-    temp = point;
+    memcpy(temp_nod->line, temp, split_len);
+    temp_nod->line_length = split_len;
     *temp = '\0';
-    temp = resiz_line((1 - temp_nod->line_length), curr_line, position);
-    curr_line->line_length = 1 + temp - curr_line->line;
+    curr_line->line_length = temp_pos2;
+    point = resiz_line(0, curr_line, position);
   }
-  curr_line->line_length = position;
   absolute_lin++;
   curr_line = temp_nod;
-  *extra = '\0';
+  curr_line->line[curr_line->line_length - 1] = '\0';
   position = 1;
   point = curr_line->line;
   if (disp != 0) {
@@ -1322,7 +1367,7 @@ void insert_line(int disp) {
       horiz_offset = 0;
       midscreen(scr_vert, point);
     }
-    draw_line(scr_vert, scr_horz, point, position, curr_line->line_length);
+    draw_line(scr_vert, scr_horz, curr_line, position);
   }
 }
 
@@ -1338,153 +1383,69 @@ struct files *name_alloc(void) {
 
 /* return the length of the first word in the line */
 static int first_word_len(struct text *line) {
-  int len = 0;
-  unsigned char *ptr = line->line;
-  while ((*ptr != '\0') && ((*ptr == ' ') || (*ptr == '\t'))) {
-    ptr++;
-  }
-  while ((*ptr != '\0') && (*ptr != ' ') && (*ptr != '\t')) {
-    len++;
-    ptr++;
-  }
-  return len;
+  char *ptr = (char *)line->line;
+  ptr += strspn(ptr, " \t");  /* Skip leading whitespace */
+  return strcspn(ptr, " \t"); /* Count length of the word */
 }
 
 /* move to next word in string		*/
 void *next_word(void *s) {
-  unsigned char *string = (unsigned char *)s;
-  while ((*string != '\0') && ((*string != 32) && (*string != 9))) {
-    string++;
-  }
-  while ((*string != '\0') && ((*string == 32) || (*string == 9))) {
-    string++;
-  }
+  char *string = (char *)s;
+  /* strcspn counts characters until a space, tab, or null is found */
+  string += strcspn(string, " \t");
+  /* strspn counts characters that ARE spaces or tabs */
+  string += strspn(string, " \t");
   return string;
 }
 
 /* move to start of previous word in text	*/
+static unsigned char *skip_spaces_back(unsigned char *start,
+                                       unsigned char *ptr) {
+  if (ptr <= start || (*(ptr - 1) != ' ' && *(ptr - 1) != '\t'))
+    return ptr;
+  return skip_spaces_back(start, ptr - 1);
+}
+
+static unsigned char *skip_word_back(unsigned char *start, unsigned char *ptr) {
+  if (ptr <= start || (*(ptr - 1) == ' ' || *(ptr - 1) == '\t'))
+    return ptr;
+  return skip_word_back(start, ptr - 1);
+}
+
 static void prev_word() {
   if (position != 1) {
-    if ((position != 1) &&
-        ((point[-1] == ' ') ||
-         (point[-1] == '\t'))) { /* if at the start of a word	*/
-      while ((position != 1) && ((*point != ' ') && (*point != '\t'))) {
-        left(1);
+    unsigned char *new_p = point;
+    if ((new_p > curr_line->line) &&
+        ((new_p[-1] == ' ') || (new_p[-1] == '\t'))) {
+      if ((*new_p != ' ') && (*new_p != '\t')) {
+        new_p--;
       }
     }
-    while ((position != 1) && ((*point == ' ') || (*point == '\t'))) {
-      left(1);
+    new_p = skip_spaces_back(curr_line->line, new_p);
+    new_p = skip_word_back(curr_line->line, new_p);
+
+    if ((new_p > curr_line->line) && ((*new_p == ' ') || (*new_p == '\t'))) {
+      new_p++;
     }
-    while ((position != 1) && ((*point != ' ') && (*point != '\t'))) {
-      left(1);
-    }
-    if ((position != 1) && ((*point == ' ') || (*point == '\t'))) {
-      right(1);
-    }
+    position -= (point - new_p);
+    point = new_p;
+    scanline(point);
+    wmove(text_win, scr_vert, (scr_horz - horiz_offset));
   } else {
-    {
-      left(1);
-    }
+    left(1);
   }
 }
 
 /* use control for commands		*/
 void control() {
-  char *string;
+  control_handler const *table_ptr =
+      gold ? gold_control_table : base_control_table;
+  int index = in * ((in >= 0) & (in <= 31));
+  control_handler handler = table_ptr[index];
+  handler = handler ? handler : no_op;
 
-  if (gold) {
-    gold = false;
-    if (in == 16) { /* control p - prev buff */
-      /* not implemented yet */
-    } else if (in == 22) { /* control v - forward */
-      /* not implemented yet */
-    } else if (in == 11) { /* control k - und char */
-      undel_char();
-    } else if (in == 21) { /* control u - mark */
-      set_mark();
-    } else if (in == 26) { /* control z - repl prmpt */
-      replace_prompt();
-    } else if (in == 24) { /* control x - fmt parag */
-      Format();
-    } else if (in == 18) { /* control r - reverse */
-      /* not implemented yet */
-    } else if (in == 12) { /* control l - und line */
-      undel_line();
-    } else if (in == 6) { /* control f - srch prmpt */
-      search_prompt();
-    } else if (in == 2) { /* control b - append */
-      /* not implemented yet */
-    } else if (in == 23) { /* control w - und word */
-      undel_word();
-    } else if (in == 3) { /* control c - clear line */
-      bol();
-      del_line();
-    } else if (in == 4) { /* control d - prefix */
-      /* not implemented yet */
-    } else if (in == 14) { /* control n - next buff */
-      /* not implemented yet */
-    } else if (in == 25) { /* control y - prev word */
-      prev_word();
-    }
-    if (info_window) {
-      paint_info_win();
-    }
-    return;
-  }
-
-  if (in == 7) { /* control g - GOLD */
-    gold = true;
-    if (info_window) {
-      paint_info_win();
-    }
-    return;
-  }
-
-  if (in == 1) { /* control a - adv char */
-    right(1);
-  } else if (in == 2) { /* control b - end of txt */
-    bottom();
-  } else if (in == 3) { /* control c - copy */
-    copy_region(false);
-  } else if (in == 4) { /* control d - beg of lin */
-    bol();
-  } else if (in == 5) { /* control e - command */
-    command_prompt();
-  } else if (in == 6) { /* control f - search */
-    search(1);
-  } else if (in == 8) { /* control h - backspace */
-    delete_char_at_cursor(1);
-  } else if (in == 10 || in == 13) { /* control j/m - carrg rtrn */
-    insert_line(1);
-  } else if (in == 11) { /* control k - del char */
-    del_char();
-  } else if (in == 12) { /* control l - del line */
-    del_line();
-  } else if (in == 14) { /* control n - next page */
-    move_rel('d', max(5, (last_line - 5)));
-  } else if (in == 15) { /* control o - end of lin */
-    eol();
-  } else if (in == 16) { /* control p - prev page */
-    move_rel('u', max(5, (last_line - 5)));
-  } else if (in == 18) { /* control r - redraw */
-    redraw();
-  } else if (in == 20) { /* control t - top of txt */
-    top();
-  } else if (in == 21) { /* control u - mark */
-    set_mark();
-  } else if (in == 22) { /* control v - paste */
-    paste_region();
-  } else if (in == 23) { /* control w - del word */
-    del_word();
-  } else if (in == 24) { /* control x - cut */
-    copy_region(true);
-  } else if (in == 25) { /* control y - adv word */
-    adv_word();
-  } else if (in == 26) { /* control z - replace */
-    replace_prompt();
-  } else if (in == 27) { /* control [ (escape) */
-    menu_op(main_menu);
-  }
+  gold = false;
+  handler();
 }
 
 /*
@@ -1492,127 +1453,20 @@ void control() {
  */
 
 void emacs_control() {
-  char *string;
+  int index = in * ((in >= 0) & (in <= 31));
+  control_handler handler = emacs_control_table[index];
+  handler = handler ? handler : no_op;
 
-  if (in == 1) {
-    { /* control a	*/
-      bol();
-    }
-  } else if (in == 2) {
-    { /* control b	*/
-      left(1);
-    }
-  } else if (in == 3) /* control c	*/
-  {
-    command_prompt();
-  } else if (in == 4) {
-    { /* control d	*/
-      del_char();
-    }
-  } else if (in == 5) {
-    { /* control e	*/
-      eol();
-    }
-  } else if (in == 6) {
-    { /* control f	*/
-      right(1);
-    }
-  } else if (in == 7) {
-    { /* control g	*/
-      move_rel('u', max(5, (last_line - 5)));
-    }
-  } else if (in == 8) {
-    { /* control h	*/
-      delete_char_at_cursor(1);
-    }
-  } else if (in == 9) {
-    { /* control i	*/
-      ;
-    }
-  } else if (in == 10) {
-    { /* control j	*/
-      undel_char();
-    }
-  } else if (in == 11) {
-    { /* control k	*/
-      del_line();
-    }
-  } else if (in == 12) {
-    { /* control l	*/
-      undel_line();
-    }
-  } else if (in == 13) {
-    { /* control m	*/
-      insert_line(1);
-    }
-  } else if (in == 14) {
-    { /* control n	*/
-      down();
-    }
-  } else if (in == 15) /* control o	*/
-  {
-    string = get_string(ascii_code_str, 1);
-    if (*string != '\0') {
-      in = atoi(string);
-      wmove(text_win, scr_vert, (scr_horz - horiz_offset));
-      insert(in);
-    }
-    free(string);
-  } else if (in == 16) {
-    { /* control p	*/
-      up();
-    }
-  } else if (in == 17) {
-    { /* control q	*/
-      ;
-    }
-  } else if (in == 18) {
-    { /* control r	*/
-      undel_word();
-    }
-  } else if (in == 19) {
-    { /* control s	*/
-      ;
-    }
-  } else if (in == 20) {
-    { /* control t	*/
-      top();
-    }
-  } else if (in == 21) {
-    { /* control u	*/
-      bottom();
-    }
-  } else if (in == 22) {
-    { /* control v	*/
-      move_rel('d', max(5, (last_line - 5)));
-    }
-  } else if (in == 23) {
-    { /* control w	*/
-      del_word();
-    }
-  } else if (in == 24) {
-    { /* control x	*/
-      search(1);
-    }
-  } else if (in == 25) {
-    { /* control y	*/
-      search_prompt();
-    }
-  } else if (in == 26) {
-    { /* control z	*/
-      adv_word();
-    }
-  } else if (in == 27) /* control [ (escape)	*/
-  {
-    menu_op(main_menu);
-  }
+  handler();
 }
 
 /* go to bottom of file			*/
 void bottom() {
-  while (curr_line->next_line != nullptr) {
+  if (curr_line->next_line != nullptr) {
     curr_line = curr_line->next_line;
     absolute_lin++;
+    bottom();
+    return;
   }
   point = curr_line->line;
   if (horiz_offset != 0) {
@@ -1625,9 +1479,11 @@ void bottom() {
 
 /* go to top of file			*/
 void top() {
-  while (curr_line->prev_line != nullptr) {
+  if (curr_line->prev_line != nullptr) {
     curr_line = curr_line->prev_line;
     absolute_lin--;
+    top();
+    return;
   }
   point = curr_line->line;
   if (horiz_offset != 0) {
@@ -1649,7 +1505,7 @@ void nextline() {
     wdeleteln(text_win);
     wmove(text_win, last_line, 0);
     wclrtobot(text_win);
-    draw_line(last_line, 0, point, 1, curr_line->line_length);
+    draw_line(last_line, 0, curr_line, 1);
   } else {
     {
       scr_vert++;
@@ -1661,20 +1517,14 @@ void nextline() {
 void prevline() {
   curr_line = curr_line->prev_line;
   absolute_lin--;
-  point = curr_line->line;
-  position = 1;
   if (scr_vert == 0) {
     winsertln(text_win);
-    draw_line(0, 0, point, 1, curr_line->line_length);
+    draw_line(0, 0, curr_line, 1);
   } else {
-    {
-      scr_vert--;
-    }
+    scr_vert--;
   }
-  while (position < curr_line->line_length) {
-    position++;
-    point++;
-  }
+  position = curr_line->line_length;
+  point = curr_line->line + position - 1;
 }
 
 /* move left one character	*/
@@ -1743,34 +1593,30 @@ void find_pos() {
   scr_horz = 0;
   position = 1;
   while ((scr_horz < scr_pos) && (position < curr_line->line_length)) {
-    if (*point == 9) {
-      {
-        scr_horz += tabshift(scr_horz);
-      }
-    } else if (*point < ' ') {
-      {
-        scr_horz += 2;
-      }
-    } else if (ee_chinese && (*point > 127) &&
-               ((curr_line->line_length - position) >= 2)) {
-      scr_horz += 2;
+    scr_horz += len_char(*point, scr_horz);
+    if (ee_chinese && (*point > 127) &&
+        ((curr_line->line_length - position) >= 2)) {
       point++;
       position++;
-    } else {
-      {
-        scr_horz++;
-      }
     }
     position++;
     point++;
   }
-  if ((scr_horz - horiz_offset) > last_col) {
-    horiz_offset = (scr_horz - (scr_horz % 8)) - (COLS - 8);
-    midscreen(scr_vert, point);
-  } else if (scr_horz < horiz_offset) {
-    horiz_offset = max(0, (scr_horz - (scr_horz % 8)));
+
+  int beyond_last = (scr_horz - horiz_offset) > last_col;
+  int below_offset = scr_horz < horiz_offset;
+
+  int new_off_high = (scr_horz - (scr_horz % 8)) - (COLS - 8);
+  int new_off_low = scr_horz - (scr_horz % 8);
+  new_off_low *= (new_off_low > 0);
+
+  horiz_offset = (beyond_last * new_off_high) + (below_offset * new_off_low) +
+                 (!(beyond_last | below_offset) * horiz_offset);
+
+  if (beyond_last | below_offset) {
     midscreen(scr_vert, point);
   }
+
   wmove(text_win, scr_vert, (scr_horz - horiz_offset));
 }
 
@@ -2230,41 +2076,40 @@ bool compare(char *string1, char *string2, bool sensitive) {
   return equal;
 }
 
-static void goto_line(char *cmd_str) {
-  int number;
-  int i;
-  unsigned char *ptr;
-  char direction = '\0';
-  struct text *t_line;
+struct line_search_res {
+  struct text *line;
+  int distance;
+  char direction;
+};
 
-  ptr = (unsigned char *)cmd_str;
-  i = 0;
-  while ((*ptr >= '0') && (*ptr <= '9')) {
-    i = (i * 10) + (*ptr - '0');
-    ptr++;
+static struct line_search_res find_line_recursive(struct text *line, int target,
+                                                  int dist) {
+  if (line->line_number == target)
+    return (struct line_search_res){line, dist, '\0'};
+  if (line->line_number > target && line->prev_line) {
+    struct line_search_res res =
+        find_line_recursive(line->prev_line, target, dist + 1);
+    res.direction = 'u';
+    return res;
   }
-  number = i;
-  i = 0;
-  t_line = curr_line;
-  while ((t_line->line_number > number) && (t_line->prev_line != nullptr)) {
-    i++;
-    t_line = t_line->prev_line;
-    direction = 'u';
+  if (line->line_number < target && line->next_line) {
+    struct line_search_res res =
+        find_line_recursive(line->next_line, target, dist + 1);
+    res.direction = 'd';
+    return res;
   }
-  while ((t_line->line_number < number) && (t_line->next_line != nullptr)) {
-    i++;
-    direction = 'd';
-    t_line = t_line->next_line;
-  }
-  if ((i < 30) && (i > 0)) {
-    move_rel(direction, i);
+  return (struct line_search_res){line, dist, '\0'};
+}
+
+static void goto_line(char *cmd_str) {
+  int number = atoi(cmd_str);
+  struct line_search_res res = find_line_recursive(curr_line, number, 0);
+
+  if ((res.distance < 30) && (res.distance > 0)) {
+    move_rel(res.direction, res.distance);
   } else {
-    if (direction != 'd') {
-      absolute_lin += i;
-    } else {
-      absolute_lin -= i;
-    }
-    curr_line = t_line;
+    curr_line = res.line;
+    absolute_lin = curr_line->line_number;
     point = curr_line->line;
     position = 1;
     midscreen((last_line / 2), point);
@@ -2276,16 +2121,31 @@ static void goto_line(char *cmd_str) {
   wmove(text_win, scr_vert, (scr_horz - horiz_offset));
 }
 
+static struct text *find_next_recursive(struct text *line, int count,
+                                        int *actual_count) {
+  if (count <= 0 || line == nullptr)
+    return line;
+  (*actual_count)++;
+  return find_next_recursive(line->next_line, count - 1, actual_count);
+}
+
+static struct text *find_prev_recursive(struct text *line, int count,
+                                        int *actual_count) {
+  if (count <= 0 || line->prev_line == nullptr)
+    return line;
+  (*actual_count)++;
+  return find_prev_recursive(line->prev_line, count - 1, actual_count);
+}
+
 /* put current line in middle of screen	*/
 void midscreen(int line, unsigned char *pnt) {
   struct text *mid_line;
-  int i;
+  int i = 0;
 
   line = min(line, last_line);
   mid_line = curr_line;
-  for (i = 0; ((i < line) && (curr_line->prev_line != nullptr)); i++) {
-    curr_line = curr_line->prev_line;
-  }
+  curr_line = find_prev_recursive(curr_line, line, &i);
+
   scr_vert = scr_horz = 0;
   wmove(text_win, 0, 0);
   draw_screen();
@@ -2557,6 +2417,7 @@ void get_line(int length, unsigned char *in_string, int *append) {
       tline->next_line = curr_line->next_line;
       tline->prev_line = curr_line;
       curr_line->next_line = tline;
+      update_line_numbers(tline->next_line, 1);
       if (tline->next_line != nullptr) {
         tline->next_line->prev_line = tline;
       }
@@ -2568,11 +2429,8 @@ void get_line(int length, unsigned char *in_string, int *append) {
       point = resiz_line(char_count, curr_line, curr_line->line_length);
       curr_line->line_length += (char_count - 1);
     }
-    for (temp_counter = 1; temp_counter < char_count; temp_counter++) {
-      *point = *str1;
-      point++;
-      str1++;
-    }
+    memcpy(point, str1, char_count - 1);
+    point += char_count - 1;
     *point = '\0';
     *append = 0;
     if ((num == length) && (*str2 != '\n')) {
@@ -2581,22 +2439,17 @@ void get_line(int length, unsigned char *in_string, int *append) {
   }
 }
 
+static void draw_screen_step(struct text *line, int vertical) {
+  if (line == nullptr || vertical > last_line)
+    return;
+  draw_line(vertical, 0, line, 1);
+  draw_screen_step(line->next_line, vertical + 1);
+}
+
 void draw_screen() /* redraw the screen from current postion	*/
 {
-  struct text *temp_line;
-  unsigned char *line_out;
-  int temp_vert;
-
-  temp_line = curr_line;
-  temp_vert = scr_vert;
   wclrtobot(text_win);
-  while ((temp_line != nullptr) && (temp_vert <= last_line)) {
-    line_out = temp_line->line;
-    draw_line(temp_vert, 0, line_out, 1, temp_line->line_length);
-    temp_vert++;
-    temp_line = temp_line->next_line;
-  }
-  wmove(text_win, temp_vert, 0);
+  draw_screen_step(curr_line, scr_vert);
   wmove(text_win, scr_vert, (scr_horz - horiz_offset));
 }
 
@@ -2676,20 +2529,21 @@ static void edit_abort(int arg) {
   exit(1);
 }
 
+static void free_text_lines(struct text *line) {
+  if (line == nullptr)
+    return;
+  free_text_lines(line->next_line);
+  free(line->line);
+  free(line);
+}
+
 void delete_text() {
-  while (curr_line->next_line != nullptr) {
-    curr_line = curr_line->next_line;
-  }
-  while (curr_line != first_line) {
-    free(curr_line->line);
-    curr_line = curr_line->prev_line;
-    absolute_lin--;
-    free(curr_line->next_line);
-  }
-  curr_line->next_line = nullptr;
-  *curr_line->line = '\0';
-  curr_line->line_length = 1;
-  curr_line->line_number = 1;
+  free_text_lines(first_line->next_line);
+  first_line->next_line = nullptr;
+  *first_line->line = '\0';
+  first_line->line_length = 1;
+  first_line->line_number = 1;
+  curr_line = first_line;
   point = curr_line->line;
   scr_pos = scr_vert = scr_horz = 0;
   position = 1;
@@ -3055,6 +2909,182 @@ void replace_prompt() {
     free(replace_term);
 }
 
+/* append the region between the mark and cursor to the existing clipboard */
+void append_region(bool cut) {
+  if (!mark_line) {
+    wmove(com_win, 0, 0);
+    wclrtoeol(com_win);
+    wprintw(com_win, "No mark set.");
+    wrefresh(com_win);
+    clear_com_win = true;
+    return;
+  }
+
+  if (!clipboard_buf) {
+    /* If clipboard is empty, append is just a normal copy */
+    copy_region(cut);
+    return;
+  }
+
+  /* Branchless validation and swap logic */
+  bool valid = false;
+  struct text *chk = first_line;
+  while (chk) {
+    valid |= (chk == mark_line);
+    chk = chk->next_line;
+  }
+  mark_line = valid ? mark_line : nullptr;
+  if (!valid)
+    return;
+
+  bool swap = (mark_line->line_number > curr_line->line_number) ||
+              ((mark_line->line_number == curr_line->line_number) &&
+               (mark_position > position));
+
+  struct text *start_line = swap ? curr_line : mark_line;
+  int start_pos = swap ? position : mark_position;
+  struct text *end_line = swap ? mark_line : curr_line;
+  int end_pos = swap ? mark_position : position;
+
+  /* Calculate new region size */
+  int est_size = end_line->line_length;
+  struct text *tl = start_line;
+  while (tl && tl != end_line) {
+    est_size += tl->line_length;
+    tl = tl->next_line;
+  }
+
+  /* Reallocate existing clipboard to hold the appended data */
+  int current_cb_len = strlen(clipboard_buf);
+  char *new_cb = realloc(clipboard_buf, current_cb_len + est_size + 1);
+  if (!new_cb)
+    return;
+  clipboard_buf = new_cb;
+
+  char *cb_ptr = clipboard_buf + current_cb_len;
+
+  /* Copy into clipboard buffer (reusing optimized copy logic) */
+  bool single_line = (start_line == end_line);
+  int copy_len =
+      single_line ? (end_pos - start_pos) : (start_line->line_length - start_pos);
+
+  memcpy(cb_ptr, start_line->line + start_pos - 1, copy_len);
+  cb_ptr += copy_len;
+  *cb_ptr = '\n';
+  cb_ptr += !single_line;
+
+  tl = start_line->next_line;
+  while (!single_line && tl && tl != end_line) {
+    memcpy(cb_ptr, tl->line, tl->line_length - 1);
+    cb_ptr += (tl->line_length - 1);
+    *cb_ptr++ = '\n';
+    tl = tl->next_line;
+  }
+
+  if (!single_line) {
+    memcpy(cb_ptr, end_line->line, end_pos - 1);
+    cb_ptr += (end_pos - 1);
+  }
+  *cb_ptr = '\0';
+
+  wmove(com_win, 0, 0);
+  wclrtoeol(com_win);
+  wprintw(com_win, cut ? "Region cut & appended." : "Region appended.");
+  wrefresh(com_win);
+  clear_com_win = true;
+
+  /* Simulate backspacing for cuts */
+  if (cut) {
+    while (curr_line != end_line || position != end_pos) {
+      bool go_right = (curr_line->line_number < end_line->line_number) ||
+                      (curr_line == end_line && position < end_pos);
+      go_right ? right(1) : left(1);
+    }
+    int del_len = cb_ptr - (clipboard_buf + current_cb_len);
+    in = 8;
+    for (int i = 0; i < del_len; i++)
+      delete_char_at_cursor(1);
+  }
+  mark_line = nullptr;
+}
+
+/* Search backwards from the current cursor position */
+int search_reverse(int display_message) {
+  if (!srch_str || *srch_str == '\0')
+    return 0;
+
+  if (display_message) {
+    wmove(com_win, 0, 0);
+    wclrtoeol(com_win);
+    wprintw(com_win, "           ...searching reverse");
+    wrefresh(com_win);
+    clear_com_win = true;
+  }
+
+  int lines_moved = 0;
+  int found = 0;
+  srch_line = curr_line;
+
+  /* Start searching immediately before the cursor */
+  int iter = position - 1;
+  int search_len = strlen((char *)srch_str);
+
+  while (!found && srch_line != nullptr) {
+    while (iter >= search_len && !found) {
+      unsigned char *chk_ptr = srch_line->line + iter - search_len;
+      unsigned char *ref_ptr = case_sen ? srch_str : u_srch_str;
+
+      bool match = true;
+      for (int i = 0; i < search_len; i++) {
+        unsigned char c = chk_ptr[i];
+        c = case_sen ? c : toupper(c);
+        match &= (c == ref_ptr[i]);
+      }
+
+      if (match) {
+        found = 1;
+        srch_1 = chk_ptr;
+      } else {
+        iter--;
+      }
+    }
+
+    if (!found) {
+      srch_line = srch_line->prev_line;
+      lines_moved--;
+      if (srch_line)
+        iter = srch_line->line_length;
+    }
+  }
+
+  if (found) {
+    if (display_message) {
+      wmove(com_win, 0, 0);
+      wclrtoeol(com_win);
+      wrefresh(com_win);
+    }
+    /* Move cursor to the found location */
+    int new_pos = (srch_1 - srch_line->line) + 1;
+    while (lines_moved < 0) {
+      up();
+      lines_moved++;
+    }
+    while (position > new_pos)
+      left(1);
+    while (position < new_pos)
+      right(1);
+  } else {
+    if (display_message) {
+      wmove(com_win, 0, 0);
+      wclrtoeol(com_win);
+      wprintw(com_win, str_not_found_msg, srch_str);
+      wrefresh(com_win);
+    }
+    wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+  }
+  return found;
+}
+
 /* delete current character	*/
 void del_char() {
   in = 8;                                /* backspace */
@@ -3134,7 +3164,7 @@ void del_word() {
   }
   curr_line->line_length -= difference;
   *d_word2 = '\0';
-  draw_line(scr_vert, scr_horz, point, position, curr_line->line_length);
+  draw_line(scr_vert, scr_horz, curr_line, position);
   d_char[0] = tmp_char[0];
   d_char[1] = tmp_char[1];
   d_char[2] = tmp_char[2];
@@ -3198,7 +3228,7 @@ void undel_word() {
   }
   *tmp_old_ptr = '\0';
   free(tmp_space);
-  draw_line(scr_vert, scr_horz, point, position, curr_line->line_length);
+  draw_line(scr_vert, scr_horz, curr_line, position);
 }
 
 /* delete from cursor to end of line	*/
@@ -3245,18 +3275,25 @@ void undel_line() {
     ud2++;
   }
   *ud1 = '\0';
-  draw_line(scr_vert, scr_horz, point, position, curr_line->line_length);
+  draw_line(scr_vert, scr_horz, curr_line, position);
 }
 
 /* advance to next word		*/
 void adv_word() {
-  while ((position < curr_line->line_length) &&
-         ((*point != 32) && (*point != 9))) {
+  if (position < curr_line->line_length) {
+    unsigned char *new_point = next_word(point);
+    size_t moved = new_point - point;
+    if (moved > 0) {
+      point = new_point;
+      position += moved;
+      scanline(point);
+    } else if (curr_line->next_line != nullptr) {
+      right(1);
+      adv_word();
+    }
+  } else if (curr_line->next_line != nullptr) {
     right(1);
-  }
-  while ((position < curr_line->line_length) &&
-         ((*point == 32) || (*point == 9))) {
-    right(1);
+    adv_word();
   }
 }
 
@@ -3320,27 +3357,29 @@ void move_rel(int direction, int lines) {
 /* go to end of line			*/
 void eol() {
   if (position < curr_line->line_length) {
-    while (position < curr_line->line_length) {
-      right(1);
-    }
+    position = curr_line->line_length;
+    point = curr_line->line + position - 1;
+    scanline(point);
   } else if (curr_line->next_line != nullptr) {
-    right(1);
-    while (position < curr_line->line_length) {
-      right(1);
-    }
+    nextline();
+    position = curr_line->line_length;
+    point = curr_line->line + position - 1;
+    scanline(point);
   }
+  wmove(text_win, scr_vert, (scr_horz - horiz_offset));
 }
 
 /* move to beginning of line	*/
 void bol() {
   if (point != curr_line->line) {
-    while (point != curr_line->line) {
-      left(1);
-    }
+    point = curr_line->line;
+    position = 1;
+    scanline(point);
   } else if (curr_line->prev_line != nullptr) {
     scr_pos = 0;
     up();
   }
+  wmove(text_win, scr_vert, (scr_horz - horiz_offset));
 }
 
 /* advance to beginning of next line	*/
@@ -3605,6 +3644,7 @@ void set_up_term() {
   }
   keypad(text_win, true);
   idlok(text_win, true);
+  wtimeout(text_win, 5000);
   wrefresh(text_win);
   help_win = newwin((LINES - 1), COLS, 0, 0);
   keypad(help_win, true);
@@ -4195,32 +4235,16 @@ void redraw() {
 
 /* test if line has any non-space characters	*/
 bool Blank_Line(struct text *test_line) {
-  unsigned char *line;
-  int length;
-
   if (test_line == nullptr) {
     return true;
   }
 
-  length = 1;
-  line = test_line->line;
+  unsigned char c = *test_line->line;
+  bool is_special = (c == '.') | (c == '>');
+  size_t skip = strspn((char *)test_line->line, " \t");
+  bool is_all_whitespace = (skip + 1) >= test_line->line_length;
 
-  /*
-   |	To handle troff/nroff documents, consider a line with a
-   |	period ('.') in the first column to be blank.  To handle mail
-   |	messages with included text, consider a line with a '>' blank.
-   */
-
-  if ((*line == '.') || (*line == '>')) {
-    return true;
-  }
-
-  while (((*line == ' ') || (*line == '\t')) &&
-         (length < test_line->line_length)) {
-    length++;
-    line++;
-  }
-  return length == test_line->line_length;
+  return is_special | is_all_whitespace;
 }
 
 /* format the paragraph according to set margins	*/

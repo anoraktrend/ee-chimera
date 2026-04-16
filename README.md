@@ -2,6 +2,8 @@
 
 The editor 'ee' (easy editor) is intended to be a simple, easy to use terminal-based screen oriented editor that requires no instruction to use. Its primary use would be for people who are new to computers, or who use computers only for things like e-mail.
 
+A primary technical goal of this project is the implementation of **branchless and loopless programming** techniques to optimize performance and reduce processor pipeline stalls.
+
 ## Recent Changes
 
 * **LSP Integration Fix:** Redirected `stderr` to `/dev/null` for the `clangd` child process. This prevents a "Transport error: Input/output error" from being printed to the terminal every time `ee` is closed, resulting in a cleaner exit.
