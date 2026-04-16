@@ -208,4 +208,6 @@ configuration file:
 # AUTHOR
 
 Developed by Hugh Mahon.
-ICU and Branchless/Loopless optimizations by Lucy Ada Randall.
+
+Modifications Designed and Assisted by Lucy Randall <lucybrown@vivaldi.net>,
+Modifications Developed using Gemini and other LLMs.
