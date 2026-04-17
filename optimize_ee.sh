@@ -15,21 +15,22 @@ fi
 # 1. Build with basic block address map
 echo "Building with basic block address map..."
 make clean
-make CFLAGS="-O3 -fbasic-block-address-map $CUR_CFLAGS" LDFLAGS="-fuse-ld=lld $CUR_LDFLAGS"
+make CC=clang CFLAGS="-O3 -fbasic-block-address-map -flto $CUR_CFLAGS" LDFLAGS="-fuse-ld=lld $CUR_LDFLAGS"
 
 # 2. Profile the binary
 echo "Profiling..."
+export PROPELLER_PROFILE=1
 # Try to record with LBR if supported, otherwise fallback
-if perf record -e cycles:u -j any,u -o perf.data -- true > /dev/null 2>&1; then
-    PERF_FLAGS="-e cycles:u -j any,u"
-elif perf record -e br_inst_retired.near_taken:u -j any,u -o perf.data -- true > /dev/null 2>&1; then
-    PERF_FLAGS="-e br_inst_retired.near_taken:u -j any,u"
+if perf record -m 1 -e cycles:u -j any,u -o perf.data -- true > /dev/null 2>&1; then
+    PERF_FLAGS="-m 1 -e cycles:u -j any,u"
+elif perf record -m 1 -e br_inst_retired.near_taken:u -j any,u -o perf.data -- true > /dev/null 2>&1; then
+    PERF_FLAGS="-m 1 -e br_inst_retired.near_taken:u -j any,u"
 else
     echo "Warning: LBR not supported, falling back to basic profiling"
-    PERF_FLAGS="-e cycles:u"
+    PERF_FLAGS="-m 1 -e cycles:u"
 fi
 
-perf record $PERF_FLAGS -o perf.data -- ./ee -i << EOF
+TERM=dumb perf record $PERF_FLAGS -o perf.data -- ./ee -i << EOF
 :read ee.c
 :line
 :down
@@ -51,7 +52,7 @@ fi
 echo "Building Propeller optimized binary..."
 if [ -f cluster.txt ]; then
     make clean
-    make CFLAGS="-O3 -fbasic-block-sections=list=cluster.txt $CUR_CFLAGS" \
+    make CC=clang CFLAGS="-O3 -fbasic-block-sections=list=cluster.txt $CUR_CFLAGS" \
          LDFLAGS="-Wl,--symbol-ordering-file=symorder.txt -Wl,--no-warn-symbol-ordering -fuse-ld=lld $CUR_LDFLAGS"
     echo "Propeller optimization complete."
 else
