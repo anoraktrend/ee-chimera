@@ -62,23 +62,68 @@
 
 #include "ee.h"
 
+void help(void);
+void Format(void);
+static void shell_op(void);
+void leave_op(void);
+void spell_op(void);
+void ispell_op(void);
+void print_buffer(void);
+void finish(void);
+int quit(int noverify);
+int file_op(int arg);
+int search(int display_message);
+void redraw(void);
+void modes_op(void);
+int unique_test(char *string, char *list[]);
+void command(char *cmd_str);
+void set_up_term(void);
+void edit_abort(int arg);
+void cleanup(void);
+void Auto_Format(void);
+void copy_region(bool cut);
+void append_region(bool cut);
+void paste_region(void);
+void delete_char_at_cursor(int no_verify);
+void insert_line(int no_verify);
+void bol(void);
+void eol(void);
+void top(void);
+void bottom(void);
+void right(int no_verify);
+void left(int no_verify);
+void prev_word(void);
+void adv_word(void);
+void undel_char(void);
+void undel_word(void);
+void undel_line(void);
+void search_prompt(void);
+void replace_prompt(void);
+void command_prompt(void);
+void gold_toggle(void);
+void gold_append(void);
+void gold_search_reverse(void);
+void resize_info_win(void);
+void update_help_strings(void);
+void insert(int character);
+
 char *ee_copyright_message = "Copyright (c) 1986, 1990, 1991, 1992, 1993, "
                              "1994, 1995, 1996, 2009 Hugh Mahon ";
 
-static char *version = "@(#) ee, version " EE_VERSION " $Revision: 1.104 $";
+static char version[] = "@(#) ee, version " EE_VERSION " $Revision: 1.104 $";
 
 // Correct prototypes for menu callbacks which expect int (*)(int) or int
 // (*)(struct menu_entries *)
 int quit_wrapper(int arg) {
-  quit(arg);
+  return quit(arg);
   return 0;
 }
 int file_op_wrapper(int arg) {
-  file_op(arg);
+  return file_op(arg);
   return 0;
 }
 int search_wrapper(int arg) {
-  search(arg);
+  return search(arg);
   return 0;
 }
 int menu_op_wrapper(struct menu_entries *m) { return menu_op(m); }
@@ -141,7 +186,7 @@ struct text *find_next_recursive(struct text *line, int count,
 struct text *find_prev_recursive(struct text *line, int count,
                                         int *actual_count);
 void cleanup(void);
-static const char *get_key_name(int i);
+const char *get_key_name(int i);
 static const char *get_key_binding(control_handler handler,
                                    control_handler *table);
 
@@ -157,12 +202,12 @@ TSTree *ts_tree = nullptr;
 EditLine *el = nullptr;
 History *hist = nullptr;
 
-static char *libedit_prompt(EditLine *e) {
+char *libedit_prompt(EditLine *e) {
   (void)e;
   return (char *)"";
 }
 
-static int libedit_getc(EditLine *e, wchar_t *cp) {
+int libedit_getc(EditLine *e, wchar_t *cp) {
   (void)e;
   int c = wgetch(com_win);
   if (c == ERR)
@@ -230,7 +275,7 @@ static void reparse() {
 #ifdef HAS_LSP
 static void lsp_send(const char *msg);
 
-static void lsp_start() {
+void lsp_start() {
   pipe2(lsp_to_child, O_CLOEXEC);
   pipe2(lsp_from_child, O_CLOEXEC);
   lsp_pid = fork();
@@ -265,7 +310,8 @@ void lsp_send(const char *msg) {
   write(lsp_to_child[1], msg, strlen(msg));
 }
 
-static void lsp_open_file(const char *filename) {
+void lsp_open_file(const char *filename) {
+
   if (filename == nullptr) {
     return;
   }
@@ -322,7 +368,7 @@ static void lsp_open_file(const char *filename) {
   free(msg);
 }
 
-static void lsp_poll() {
+void lsp_poll() {
   char buf[8192]; /* BUF_SIZE */
   ssize_t const num_read = read(lsp_from_child[0], buf, sizeof(buf) - 1);
   if (num_read > 0) {
@@ -402,7 +448,8 @@ int pipe_out[2];          /* pipe file desc for output		*/
 int pipe_in[2];           /* pipe file descriptors for input	*/
 bool out_pipe;            /* flag that info is piped out		*/
 bool in_pipe;             /* flag that info is piped in		*/
-bool formatted = false;   /* flag indicating paragraph formatted	*/
+bool formatted = false;
+bool profiling_mode = false;   /* flag indicating paragraph formatted	*/
 #ifdef HAS_AUTOFORMAT
 bool auto_format = false; /* flag for auto_format mode		*/
 #endif
@@ -415,6 +462,8 @@ bool curses_initialized =
     false; /* flag indicating if curses has been started*/
 bool emacs_keys_mode =
     false;                      /* mode for if emacs key binings are used    */
+bool vi_keys_mode = false;
+bool vi_insert_mode = false;
 bool ee_chinese = false; /* allows handling of multi-byte characters  */
                                 /* by checking for high bit in a byte the    */
                                 /* code recognizes a two-byte character      */
@@ -484,15 +533,16 @@ struct menu_entries modes_menu[] = {
     {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 5. eightbit characters*/
     {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 6. info window	*/
     {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 7. emacs key bindings*/
-    {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 8. right margin	*/
-    {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 9. chinese text	*/
+    {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 8. vi key bindings	*/
+    {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 9. right margin	*/
+    {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 10. chinese text	*/
     {"", nullptr, nullptr, nullptr, dump_ee_conf,
-     -1}, /* 10. save editor config */
+     -1}, /* 11. save editor config */
     {nullptr, nullptr, nullptr, nullptr, nullptr, -1}
     /* terminator		*/
 };
 
-char *mode_strings[11];
+char *mode_strings[12];
 
 struct menu_entries config_dump_menu[] = {
     {"", nullptr, nullptr, nullptr, nullptr, 0},
@@ -543,15 +593,23 @@ struct menu_entries misc_menu[] = {
 struct menu_entries main_menu[] = {
     {"", nullptr, nullptr, nullptr, nullptr, -1},
     {"", nullptr, nullptr, nullptr, leave_op, -1},
+#ifdef HAS_HELP
     {"", nullptr, nullptr, nullptr, help, -1},
+#endif
     {"", (int (*)(struct menu_entries *))menu_op_wrapper,
+#ifdef HAS_MENU
      (struct menu_entries *)file_menu, nullptr, nullptr, -1},
+#endif
     {"", nullptr, nullptr, nullptr, redraw, -1},
     {"", nullptr, nullptr, nullptr, modes_op, -1},
     {"", (int (*)(struct menu_entries *))menu_op_wrapper,
+#ifdef HAS_MENU
      (struct menu_entries *)search_menu, nullptr, nullptr, -1},
+#endif
     {"", (int (*)(struct menu_entries *))menu_op_wrapper,
+#ifdef HAS_MENU
      (struct menu_entries *)misc_menu, nullptr, nullptr, -1},
+#endif
     {nullptr, nullptr, nullptr, nullptr, nullptr, -1}};
 
 char *help_text[23];
@@ -650,6 +708,8 @@ char *EIGHTBIT;
 char *NOEIGHTBIT;
 char *EMACS_string;
 char *NOEMACS_string;
+char *VI_string;
+char *NOVI_string;
 char *BIND;
 char *GBIND;
 char *EBIND;
@@ -671,31 +731,31 @@ char *nochinese_cmd;
 
 /* Control handler wrappers for jump tables */
 static void control_right(void) { right(1); }
-static void control_copy(void) { copy_region(false); }
-static void control_search(void) { search(1); }
-static void control_backspace(void) { delete_char_at_cursor(1); }
-static void control_newline(void) { insert_line(1); }
-static void control_next_page(void) { move_rel('d', max(5, (last_line - 5))); }
-static void control_prev_page(void) { move_rel('u', max(5, (last_line - 5))); }
-static void control_cut(void) { copy_region(true); }
+void control_copy(void) { copy_region(false); }
+void control_search(void) { search(1); }
+void control_backspace(void) { delete_char_at_cursor(1); }
+void control_newline(void) { insert_line(1); }
+void control_next_page(void) { move_rel('d', max(5, (last_line - 5))); }
+void control_prev_page(void) { move_rel('u', max(5, (last_line - 5))); }
+void control_cut(void) { copy_region(true); }
 static void control_left(void) { left(1); }
-static void control_down(void) { down(); }
-static void control_up(void) { up(); }
-static void control_insert_ascii(void) {
+void control_down(void) { down(); }
+void control_up(void) { up(); }
+void control_insert_ascii(void) {
   char *string = get_string(ascii_code_str, 1);
   if (*string != '\0') {
     in = atoi(string);
-    wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+    ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
     insert(in);
   }
   free(string);
 }
-static void gold_search_reverse(void) { search_reverse(1); }
-static void gold_append(void) { append_region(false); }
+void gold_search_reverse(void) { search_reverse(1); }
+void gold_append(void) { append_region(false); }
 
 static void control_esc(void);
 static void control_gold_esc(void);
-static void gold_toggle(void);
+void gold_toggle(void);
 
 struct command_map commands_table[] = {
     {"right", (void (*)(void))right, "move right one character", "right"},
@@ -708,9 +768,9 @@ struct command_map commands_table[] = {
     {"prev_page", (void (*)(void))prevline, "move to previous page", "prev page"},
     {"top_of_txt", top, "move to top of text", "top of txt"},
     {"bottom_of_txt", bottom, "move to bottom of text", "end of txt"},
-    {"del_char", del_char, "delete character at cursor", "del char"},
+    {"del_char", (void (*)(void))delete_char_at_cursor, "delete character at cursor", "del char"},
     {"del_word", del_word, "delete word at cursor", "del word"},
-    {"del_line", del_line, "delete current line", "del line"},
+    {"del_line", (void (*)(void))del_line, "delete current line", "del line"},
     {"und_char", undel_char, "undelete last character", "und char"},
     {"und_word", undel_word, "undelete last word", "und word"},
     {"und_line", undel_line, "undelete last line", "und line"},
@@ -816,7 +876,7 @@ static void control_gold_esc(void) {
 #endif
 }
 
-static void gold_toggle(void) {
+void gold_toggle(void) {
   gold = true;
   if (info_window) {
     resize_info_win();
@@ -870,8 +930,16 @@ int main(int argc, char *argv[]) {
     signal(counter, SIG_IGN);
   }
 
-  /* Always read from (and write to) a terminal. */
+  if (getenv("PROPELLER_PROFILE") != nullptr) {
+    profiling_mode = true;
+  }
+
   if ((isatty(STDIN_FILENO) == 0) || (isatty(STDOUT_FILENO) == 0)) {
+    profiling_mode = true;
+  }
+
+  /* Always read from (and write to) a terminal. */
+  if (!profiling_mode && ((isatty(STDIN_FILENO) == 0) || (isatty(STDOUT_FILENO) == 0))) {
     fprintf(stderr, "ee's standard input and output must be a terminal\n");
     exit(1);
   }
@@ -910,20 +978,24 @@ int main(int argc, char *argv[]) {
   if (argc > 0) {
     get_options(argc, argv);
   }
+  if (profiling_mode) {
+    if (LINES == 0) LINES = 24;
+    if (COLS == 0) COLS = 80;
+  }
   set_up_term();
   if (right_margin == 0) {
     right_margin = COLS - 1;
   }
   if (top_of_stack == nullptr) {
     if (restrict_mode()) {
-      wmove(com_win, 0, 0);
-      werase(com_win);
-      wprintw(com_win, "%s", ree_no_file_msg);
-      wrefresh(com_win);
+      ee_wmove(com_win, 0, 0);
+      ee_werase(com_win);
+      ee_wprintw(com_win, "%s", ree_no_file_msg);
+      ee_wrefresh(com_win);
       edit_abort(0);
     }
-    wprintw(com_win, "%s", no_file_string);
-    wrefresh(com_win);
+    ee_wprintw(com_win, "%s", no_file_string);
+    ee_wrefresh(com_win);
   } else {
     {
       check_fp();
@@ -941,6 +1013,44 @@ int main(int argc, char *argv[]) {
   }
 #endif
 
+  if (profiling_mode) {
+    char buf[512];
+    int ed_insert_mode = 0;
+    while (fgets(buf, sizeof(buf), stdin) != nullptr) {
+      size_t len = strlen(buf);
+      if (len > 0 && buf[len - 1] == '\n')
+        buf[len - 1] = '\0';
+      if (ed_insert_mode) {
+        if (strcmp(buf, ".") == 0) {
+          ed_insert_mode = 0;
+        } else {
+          for (int i = 0; buf[i]; i++) insert(buf[i]);
+          insert('\n');
+        }
+      } else {
+        if (strcmp(buf, "q") == 0 || strcmp(buf, "quit") == 0 || strcmp(buf, ":quit") == 0) {
+          edit = false;
+        } else if (strcmp(buf, "a") == 0 || strcmp(buf, "i") == 0 || strcmp(buf, "c") == 0) {
+          if (buf[0] == 'c') delete_char_at_cursor(1); // very basic change
+          ed_insert_mode = 1;
+        } else if (strcmp(buf, "d") == 0) {
+          del_line();
+        } else if (strcmp(buf, "w") == 0) {
+          if (in_file_name) write_file(in_file_name, false);
+        } else if (buf[0] == 'w' && buf[1] == ' ') {
+          write_file(buf + 2, false);
+        } else if (buf[0] == ':') {
+          command(buf + 1);
+        } else {
+          command(buf); // Fallback
+        }
+      }
+      if (!edit) break;
+    }
+    cleanup();
+    return 0;
+  }
+
   last_redraw_time = time(nullptr);
   while (edit) {
 #ifdef HAS_LSP
@@ -955,7 +1065,7 @@ int main(int argc, char *argv[]) {
 #endif
     }
 
-    wrefresh(text_win);
+    ee_wrefresh(text_win);
 #ifdef HAS_NCURSESW
     wint_t wch;
     int res = wget_wch(text_win, &wch);
@@ -996,12 +1106,12 @@ int main(int argc, char *argv[]) {
 
     if (clear_com_win) {
       clear_com_win = false;
-      wmove(com_win, 0, 0);
-      werase(com_win);
+      ee_wmove(com_win, 0, 0);
+      ee_werase(com_win);
       if (!info_window) {
-        wprintw(com_win, "%s", com_win_message);
+        ee_wprintw(com_win, "%s", com_win_message);
       }
-      wrefresh(com_win);
+      ee_wrefresh(com_win);
     }
 
     if (in == 27) { // ESC - could be Meta/Alt or standalone
@@ -1017,6 +1127,10 @@ int main(int argc, char *argv[]) {
       wtimeout(text_win, 5000); // Restore timeout
       if (next_in != -1) {
         in = 512 + next_in;
+      } else if (vi_keys_mode && vi_insert_mode) {
+        vi_insert_mode = false;
+        left(1);
+        continue;
       }
     }
 
@@ -1037,7 +1151,9 @@ int main(int argc, char *argv[]) {
       in = ASCII_BACKSPACE; /* make sure key is set to backspace */
       delete_char_at_cursor(1);
     } else if ((in > 31) || (in == 9)) {
-      {
+      if (vi_keys_mode && !vi_insert_mode) {
+        vi_command(in);
+      } else {
         insert(in);
       }
     } else if ((in >= 0) && (in <= 31)) {
@@ -1071,7 +1187,7 @@ static unsigned char *resiz_line(int factor, struct text *rline, int rpos) {
 }
 
 /* insert character into line		*/
-static void insert(int character) {
+void insert(int character) {
   int counter;
   int value;
   unsigned char *temp;  /* temporary pointer			*/
@@ -1119,14 +1235,14 @@ static void insert(int character) {
     {
       scr_pos = scr_horz += out_char(text_win, c, scr_horz);
     } else {
-      waddch(text_win, (unsigned char)c);
+      ee_waddch(text_win, (unsigned char)c);
       scr_pos = ++scr_horz;
     }
     point++;
     position++;
   }
 
-  wclrtoeol(text_win);
+  ee_wclrtoeol(text_win);
 
   if (observ_margins && (right_margin < scr_pos)) {
     counter = position;
@@ -1244,7 +1360,7 @@ void delete_char_at_cursor(int disp) {
     temp_vert = scr_vert;
     scr_pos = scr_horz;
     if (scr_vert < last_line) {
-      wmove(text_win, scr_vert + 1, 0);
+      ee_wmove(text_win, scr_vert + 1, 0);
       wdeleteln(text_win);
     }
     int lines_to_find = last_line - temp_vert;
@@ -1252,10 +1368,10 @@ void delete_char_at_cursor(int disp) {
 
     if ((temp_vert == last_line) && (temp_buff != nullptr)) {
       tp = temp_buff->line;
-      wmove(text_win, last_line, 0);
+      ee_wmove(text_win, last_line, 0);
       wclrtobot(text_win);
       draw_line(last_line, 0, temp_buff, 1);
-      wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+      ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
     }
   }
   draw_line(scr_vert, scr_horz, curr_line, position);
@@ -1330,7 +1446,7 @@ int out_char(WINDOW *window, int character, int column) {
     i1 = tabshift(column);
     for (i2 = 0; (i2 < i1) && (((column + i2 + 1) - horiz_offset) < last_col);
          i2++) {
-      waddch(window, ' ');
+      ee_waddch(window, ' ');
     }
     return i1;
   }
@@ -1352,18 +1468,18 @@ int out_char(WINDOW *window, int character, int column) {
       sprintf(string2, "<%d>", (character < 0) ? (character + 256) : character);
       string = string2;
     } else {
-      waddch(window, (unsigned char)character);
+      ee_waddch(window, (unsigned char)character);
       return 1;
     }
 #endif
   } else {
-    waddch(window, (unsigned char)character);
+    ee_waddch(window, (unsigned char)character);
     return 1;
   }
   for (i2 = 0;
        (string[i2] != '\0') && (((column + i2 + 1) - horiz_offset) < last_col);
        i2++) {
-    waddch(window, (unsigned char)string[i2]);
+    ee_waddch(window, (unsigned char)string[i2]);
   }
   return (strlen(string));
 }
@@ -1486,7 +1602,7 @@ void lsp_change_file(const char *filename) {
 #endif
 
 /* redraw line from current position */
-static void draw_line(int vertical, int horiz, struct text *line, int t_pos) {
+void draw_line(int vertical, int horiz, struct text *line, int t_pos) {
   int d;               /* partial length of special or tab char to display  */
   unsigned char *temp; /* temporary pointer to position in line	     */
   int abs_column;      /* offset in screen units from begin of line	     */
@@ -1504,8 +1620,8 @@ static void draw_line(int vertical, int horiz, struct text *line, int t_pos) {
   int line_no = line->line_number;
 
   if (column < 0) {
-    wmove(text_win, row, 0);
-    wclrtoeol(text_win);
+    ee_wmove(text_win, row, 0);
+    ee_wclrtoeol(text_win);
   }
   while (column < 0) {
     d = len_char(*temp, abs_column);
@@ -1514,8 +1630,8 @@ static void draw_line(int vertical, int horiz, struct text *line, int t_pos) {
     posit++;
     temp++;
   }
-  wmove(text_win, row, column);
-  wclrtoeol(text_win);
+  ee_wmove(text_win, row, column);
+  ee_wclrtoeol(text_win);
   while ((posit < line->line_length) && (column <= last_col)) {
     int attr = A_NORMAL;
 #ifdef HAS_TREESITTER
@@ -1543,7 +1659,7 @@ static void draw_line(int vertical, int horiz, struct text *line, int t_pos) {
       // Invalid UTF-8, just print byte
       abs_column++;
       column++;
-      waddch(text_win, *temp);
+      ee_waddch(text_win, *temp);
       posit++;
       temp++;
     } else {
@@ -1555,7 +1671,7 @@ static void draw_line(int vertical, int horiz, struct text *line, int t_pos) {
         // bytes also works in ncursesw if we add them correctly.
         // For simplicity, we add bytes one by one but they form a sequence.
         for (int j = 0; j < i; j++) {
-          waddch(text_win, temp[j]);
+          ee_waddch(text_win, temp[j]);
         }
         int w = u_char_width(c, abs_column);
         abs_column += w;
@@ -1571,7 +1687,7 @@ static void draw_line(int vertical, int horiz, struct text *line, int t_pos) {
     } else {
       abs_column++;
       column++;
-      waddch(text_win, *temp);
+      ee_waddch(text_win, *temp);
     }
     posit++;
     temp++;
@@ -1579,9 +1695,9 @@ static void draw_line(int vertical, int horiz, struct text *line, int t_pos) {
     wattroff(text_win, attr);
   }
   if (column < last_col) {
-    wclrtoeol(text_win);
+    ee_wclrtoeol(text_win);
   }
-  wmove(text_win, vertical, (horiz - horiz_offset));
+  ee_wmove(text_win, vertical, (horiz - horiz_offset));
 }
 
 /* insert new line		*/
@@ -1593,8 +1709,8 @@ void insert_line(int disp) {
   struct text *temp_nod;
 
   text_changes = true;
-  wmove(text_win, scr_vert, (scr_horz - horiz_offset));
-  wclrtoeol(text_win);
+  ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+  ee_wclrtoeol(text_win);
   temp_nod = txtalloc();
   temp_nod->line = extra = malloc(10);
   temp_nod->line_length = 1;
@@ -1629,13 +1745,13 @@ void insert_line(int disp) {
   if (disp != 0) {
     if (scr_vert < last_line) {
       scr_vert++;
-      wclrtoeol(text_win);
-      wmove(text_win, scr_vert, 0);
+      ee_wclrtoeol(text_win);
+      ee_wmove(text_win, scr_vert, 0);
       winsertln(text_win);
     } else {
-      wmove(text_win, 0, 0);
+      ee_wmove(text_win, 0, 0);
       wdeleteln(text_win);
-      wmove(text_win, last_line, 0);
+      ee_wmove(text_win, last_line, 0);
       wclrtobot(text_win);
     }
     scr_pos = scr_horz = 0;
@@ -1688,7 +1804,7 @@ static unsigned char *skip_word_back(unsigned char *start, unsigned char *ptr) {
   return skip_word_back(start, ptr - 1);
 }
 
-static void prev_word() {
+void prev_word() {
   if (position != 1) {
     unsigned char *new_p = point;
     if ((new_p > curr_line->line) &&
@@ -1706,9 +1822,35 @@ static void prev_word() {
     position -= (point - new_p);
     point = new_p;
     scanline(point);
-    wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+    ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
   } else {
     left(1);
+  }
+}
+
+void vi_command(int c) {
+  switch (c) {
+    case 'h': left(1); break;
+    case 'j': down(); break;
+    case 'k': up(); break;
+    case 'l': right(1); break;
+    case 'i': vi_insert_mode = true; break;
+    case 'I': bol(); vi_insert_mode = true; break;
+    case 'a': right(1); vi_insert_mode = true; break;
+    case 'A': eol(); vi_insert_mode = true; break;
+    case 'o': eol(); control_newline(); vi_insert_mode = true; break;
+    case 'O': bol(); control_newline(); up(); vi_insert_mode = true; break;
+    case 'x': delete_char_at_cursor(1); break;
+    case 'X': left(1); delete_char_at_cursor(1); break;
+    case '0': bol(); break;
+    case '$': eol(); break;
+    case 'g': top(); break;
+    case 'G': bottom(); break;
+    case 'w': adv_word(); break;
+    case 'b': prev_word(); break;
+    case 'u': undel_char(); break;
+    case ':': command_prompt(); break;
+    case '/': search_prompt(); break;
   }
 }
 
@@ -1781,9 +1923,9 @@ void nextline() {
   point = curr_line->line;
   position = 1;
   if (scr_vert == last_line) {
-    wmove(text_win, 0, 0);
+    ee_wmove(text_win, 0, 0);
     wdeleteln(text_win);
-    wmove(text_win, last_line, 0);
+    ee_wmove(text_win, last_line, 0);
     wclrtobot(text_win);
     draw_line(last_line, 0, curr_line, 1);
   } else {
@@ -1826,7 +1968,7 @@ void left(int disp) {
     position--;
 #endif
     scanline(point);
-    wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+    ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
     scr_pos = scr_horz;
   } else if (curr_line->prev_line != nullptr) {
     if (disp == 0) {
@@ -1840,7 +1982,7 @@ void left(int disp) {
     prevline();
     scanline(point);
     scr_pos = scr_horz;
-    wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+    ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
   }
 }
 
@@ -1863,7 +2005,7 @@ void right(int disp) {
     position++;
 #endif
     scanline(point);
-    wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+    ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
     scr_pos = scr_horz;
   } else if (curr_line->next_line != nullptr) {
     if (disp == 0) {
@@ -1879,7 +2021,7 @@ void right(int disp) {
       horiz_offset = 0;
       midscreen(scr_vert, point);
     }
-    wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+    ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
     position = 1;
   }
 }
@@ -1921,7 +2063,7 @@ void find_pos() {
     midscreen(scr_vert, point);
   }
 
-  wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+  ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
 }
 
 /* move up one line		*/
@@ -2065,10 +2207,10 @@ void print_buffer() {
   char buffer[256];
 
   sprintf(buffer, ">!%s", print_command);
-  wmove(com_win, 0, 0);
-  wclrtoeol(com_win);
-  wprintw(com_win, printer_msg_str, print_command);
-  wrefresh(com_win);
+  ee_wmove(com_win, 0, 0);
+  ee_wclrtoeol(com_win);
+  ee_wprintw(com_win, printer_msg_str, print_command);
+  ee_wrefresh(com_win);
   command(buffer);
 }
 
@@ -2082,15 +2224,15 @@ void command_prompt() {
   }
   cmd_str = get_string(command_str, 1);
   if ((result = unique_test(cmd_str, commands)) != 1) {
-    werase(com_win);
-    wmove(com_win, 0, 0);
+    ee_werase(com_win);
+    ee_wmove(com_win, 0, 0);
     if (result == 0) {
-      wprintw(com_win, unkn_cmd_str, cmd_str);
+      ee_wprintw(com_win, unkn_cmd_str, cmd_str);
     } else {
-      wprintw(com_win, "%s", non_unique_cmd_msg);
+      ee_wprintw(com_win, "%s", non_unique_cmd_msg);
     }
 
-    wrefresh(com_win);
+    ee_wrefresh(com_win);
 
     info_type = CONTROL_KEYS;
     if (info_window) {
@@ -2103,8 +2245,8 @@ void command_prompt() {
     return;
   }
   command(cmd_str);
-  wrefresh(com_win);
-  wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+  ee_wrefresh(com_win);
+  ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
   info_type = CONTROL_KEYS;
   if (info_window) {
     resize_info_win();
@@ -2153,26 +2295,26 @@ void command(char *cmd_str1) {
       free(tmp_file);
     }
   } else if (compare(cmd_str, LINE, false)) {
-    wmove(com_win, 0, 0);
-    wclrtoeol(com_win);
-    wprintw(com_win, line_num_str, curr_line->line_number);
-    wprintw(com_win, line_len_str, curr_line->line_length);
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, line_num_str, curr_line->line_number);
+    ee_wprintw(com_win, line_len_str, curr_line->line_length);
   } else if (compare(cmd_str, FILE_str, false)) {
-    wmove(com_win, 0, 0);
-    wclrtoeol(com_win);
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
     if (in_file_name == nullptr) {
-      wprintw(com_win, "%s", no_file_string);
+      ee_wprintw(com_win, "%s", no_file_string);
     } else {
-      wprintw(com_win, current_file_str, in_file_name);
+      ee_wprintw(com_win, current_file_str, in_file_name);
     }
   } else if ((*cmd_str >= '0') && (*cmd_str <= '9')) {
     {
       goto_line(cmd_str);
     }
   } else if (compare(cmd_str, CHARACTER, false)) {
-    wmove(com_win, 0, 0);
-    wclrtoeol(com_win);
-    wprintw(com_win, char_str, *point);
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, char_str, *point);
   } else if (compare(cmd_str, REDRAW, false)) {
     {
       redraw();
@@ -2184,13 +2326,13 @@ void command(char *cmd_str1) {
       tmp_line = tmp_line->next_line;
     }
   } else if (compare(cmd_str, AUTHOR, false)) {
-    wmove(com_win, 0, 0);
-    wclrtoeol(com_win);
-    wprintw(com_win, "written by Hugh Mahon");
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, "written by Hugh Mahon");
   } else if (compare(cmd_str, VERSION, false)) {
-    wmove(com_win, 0, 0);
-    wclrtoeol(com_win);
-    wprintw(com_win, "%s", version);
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, "%s", version);
   } else if (compare(cmd_str, CASE, false)) {
     {
       case_sen = true;
@@ -2242,9 +2384,9 @@ void command(char *cmd_str1) {
     command(cmd_str);
     out_pipe = false;
   } else {
-    wmove(com_win, 0, 0);
-    wclrtoeol(com_win);
-    wprintw(com_win, unkn_cmd_str, cmd_str);
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, unkn_cmd_str, cmd_str);
   }
   if (cmd_str2 != nullptr) {
     free(cmd_str2);
@@ -2273,18 +2415,18 @@ char *get_string(char *prompt, int advance) {
     int count;
 
     // Position cursor at the bottom
-    wmove(com_win, 0, 0);
-    wclrtoeol(com_win);
-    waddstr(com_win, prompt);
-    wrefresh(com_win);
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_waddstr(com_win, prompt);
+    ee_wrefresh(com_win);
 
     // libedit needs to know the prompt. We've already printed it via ncurses
     // but we can also set it in libedit if we want it to handle redraws.
     // For now, we'll just use el_gets.
     
     // We need to temporarily leave curses mode so libedit can use the terminal
-    def_prog_mode();
-    endwin();
+    if(!profiling_mode) def_prog_mode();
+    if(!profiling_mode) endwin();
     
     // Print prompt again since we just did endwin
     printf("\r%s", prompt);
@@ -2292,10 +2434,10 @@ char *get_string(char *prompt, int advance) {
 
     line = el_gets(el, &count);
     
-    reset_prog_mode();
-    refresh();
-    touchwin(text_win);
-    wrefresh(text_win);
+    if(!profiling_mode) reset_prog_mode();
+    if(!profiling_mode) refresh();
+    if(!profiling_mode) touchwin(text_win);
+    ee_wrefresh(text_win);
 
     if (line != nullptr && count > 0) {
       string = malloc(count + 1);
@@ -2338,11 +2480,11 @@ char *get_string(char *prompt, int advance) {
   int esc_flag;
 
   g_point = tmp_string = malloc(512);
-  wmove(com_win, 0, 0);
-  wclrtoeol(com_win);
+  ee_wmove(com_win, 0, 0);
+  ee_wclrtoeol(com_win);
 
-  waddstr(com_win, prompt);
-  wrefresh(com_win);
+  ee_waddstr(com_win, prompt);
+  ee_wrefresh(com_win);
   nam_str = tmp_string;
   clear_com_win = true;
   g_horz = g_position = get_string_len(prompt, strlen(prompt), 0);
@@ -2360,9 +2502,9 @@ char *get_string(char *prompt, int advance) {
       tmp_int = tmp_int - g_horz;
       for (; 0 < tmp_int; tmp_int--) {
         if ((g_horz + tmp_int) < (last_col - 1)) {
-          waddch(com_win, '\010');
-          waddch(com_win, ' ');
-          waddch(com_win, '\010');
+          ee_waddch(com_win, '\010');
+          ee_waddch(com_win, ' ');
+          ee_waddch(com_win, '\010');
         }
       }
       nam_str--;
@@ -2385,12 +2527,12 @@ char *get_string(char *prompt, int advance) {
       } else {
         g_horz++;
         if (g_horz < (last_col - 1)) {
-          waddch(com_win, (unsigned char)in);
+          ee_waddch(com_win, (unsigned char)in);
         }
       }
       nam_str++;
     }
-    wrefresh(com_win);
+    ee_wrefresh(com_win);
     if (esc_flag != 0) {
       in = '\0';
     }
@@ -2405,7 +2547,7 @@ char *get_string(char *prompt, int advance) {
   strscpy(string, nam_str, string_len);
 
   free(tmp_string);
-  wrefresh(com_win);
+  ee_wrefresh(com_win);
   return string;
 }
 
@@ -2464,7 +2606,7 @@ static struct line_search_res find_line_recursive(struct text *line, int target,
   return (struct line_search_res){line, dist, '\0'};
 }
 
-static void goto_line(char *cmd_str) {
+void goto_line(char *cmd_str) {
   int number = atoi(cmd_str);
   struct line_search_res res = find_line_recursive(curr_line, number, 0);
 
@@ -2478,10 +2620,10 @@ static void goto_line(char *cmd_str) {
     midscreen((last_line / 2), point);
     scr_pos = scr_horz;
   }
-  wmove(com_win, 0, 0);
-  wclrtoeol(com_win);
-  wprintw(com_win, line_num_str, curr_line->line_number);
-  wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+  ee_wmove(com_win, 0, 0);
+  ee_wclrtoeol(com_win);
+  ee_wprintw(com_win, line_num_str, curr_line->line_number);
+  ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
 }
 
 struct text *find_next_recursive(struct text *line, int count,
@@ -2510,12 +2652,12 @@ void midscreen(int line, unsigned char *pnt) {
   curr_line = find_prev_recursive(curr_line, line, &i);
 
   scr_vert = scr_horz = 0;
-  wmove(text_win, 0, 0);
+  ee_wmove(text_win, 0, 0);
   draw_screen();
   scr_vert = i;
   curr_line = mid_line;
   scanline(pnt);
-  wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+  ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
 }
 
 /* get arguments from command line	*/
@@ -2611,8 +2753,8 @@ void check_fp() {
   temp = stat(tmp_file, &buf);
   buf.st_mode &= ~07777;
   if ((temp != -1) && (buf.st_mode != 0100000) && (buf.st_mode != 0)) {
-    wprintw(com_win, file_is_dir_msg, tmp_file);
-    wrefresh(com_win);
+    ee_wprintw(com_win, file_is_dir_msg, tmp_file);
+    ee_wrefresh(com_win);
     if (input_file) {
       quit(0);
       return;
@@ -2620,16 +2762,16 @@ void check_fp() {
     return;
   }
   if ((get_fd = open(tmp_file, O_RDONLY | O_CLOEXEC)) == -1) {
-    wmove(com_win, 0, 0);
-    wclrtoeol(com_win);
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
     if (input_file) {
-      wprintw(com_win, new_file_msg, tmp_file);
+      ee_wprintw(com_win, new_file_msg, tmp_file);
     } else {
-      wprintw(com_win, cant_open_msg, tmp_file);
+      ee_wprintw(com_win, cant_open_msg, tmp_file);
     }
-    wrefresh(com_win);
-    wmove(text_win, scr_vert, (scr_horz - horiz_offset));
-    wrefresh(text_win);
+    ee_wrefresh(com_win);
+    ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+    ee_wrefresh(text_win);
     recv_file = false;
     input_file = false;
     return;
@@ -2659,16 +2801,16 @@ void check_fp() {
       start_at_line = nullptr;
     }
   } else {
-    wmove(com_win, 0, 0);
-    wclrtoeol(com_win);
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
     text_changes = true;
     if ((tmp_file != nullptr) && (*tmp_file != '\0')) {
-      wprintw(com_win, file_read_fin_msg, tmp_file);
+      ee_wprintw(com_win, file_read_fin_msg, tmp_file);
     }
   }
-  wrefresh(com_win);
-  wmove(text_win, scr_vert, (scr_horz - horiz_offset));
-  wrefresh(text_win);
+  ee_wrefresh(com_win);
+  ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+  ee_wrefresh(text_win);
 }
 
 /* read specified file into current buffer	*/
@@ -2681,18 +2823,18 @@ void get_file(const char *file_name) {
 
   if (recv_file) /* if reading a file			*/
   {
-    wmove(com_win, 0, 0);
-    wclrtoeol(com_win);
-    wprintw(com_win, reading_file_msg, file_name);
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, reading_file_msg, file_name);
     if (access(file_name, 2) != 0) /* check permission to write */
     {
       if ((errno == ENOTDIR) || (errno == EACCES) || (errno == EROFS) ||
           (errno == ETXTBSY) || (errno == EFAULT)) {
-        wprintw(com_win, "%s", read_only_msg);
+        ee_wprintw(com_win, "%s", read_only_msg);
         ro_flag = 1;
       }
     }
-    wrefresh(com_win);
+    ee_wrefresh(com_win);
   }
   if (curr_line->line_length > 1) /* if current line is not blank	*/
   {
@@ -2724,13 +2866,13 @@ void get_file(const char *file_name) {
   if (input_file) /* if this is the file to be edited display number of lines
                    */
   {
-    wmove(com_win, 0, 0);
-    wclrtoeol(com_win);
-    wprintw(com_win, file_read_lines_msg, in_file_name, curr_line->line_number);
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, file_read_lines_msg, in_file_name, curr_line->line_number);
     if (ro_flag != 0) {
-      wprintw(com_win, "%s", read_only_msg);
+      ee_wprintw(com_win, "%s", read_only_msg);
     }
-    wrefresh(com_win);
+    ee_wrefresh(com_win);
   } else if (can_read != 0) {
     { /* not input_file and file is non-zero size */
       text_changes = true;
@@ -2815,7 +2957,7 @@ void draw_screen() /* redraw the screen from current postion	*/
 {
   wclrtobot(text_win);
   draw_screen_step(curr_line, scr_vert);
-  wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+  ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
 }
 
 /* prepare to exit edit session	*/
@@ -2832,10 +2974,10 @@ void finish() {
   }
 
   if ((file_name == nullptr) || (*file_name == '\0')) {
-    wmove(com_win, 0, 0);
-    wprintw(com_win, "%s", file_not_saved_msg);
-    wclrtoeol(com_win);
-    wrefresh(com_win);
+    ee_wmove(com_win, 0, 0);
+    ee_wprintw(com_win, "%s", file_not_saved_msg);
+    ee_wclrtoeol(com_win);
+    ee_wrefresh(com_win);
     clear_com_win = true;
     return;
   }
@@ -2856,8 +2998,8 @@ void finish() {
 int quit(int noverify) {
   char *ans;
 
-  touchwin(text_win);
-  wrefresh(text_win);
+  if(!profiling_mode) touchwin(text_win);
+  ee_wrefresh(text_win);
   if (text_changes && (noverify == 0)) {
     ans = get_string(changes_made_prompt, 1);
     if (toupper((unsigned char)*ans) == toupper((unsigned char)*yes_char)) {
@@ -2869,11 +3011,11 @@ int quit(int noverify) {
   }
   if (top_of_stack == nullptr) {
     if (info_window) {
-      wrefresh(info_win);
+      ee_wrefresh(info_win);
     }
-    wrefresh(com_win);
+    ee_wrefresh(com_win);
     resetty();
-    endwin();
+    if(!profiling_mode) endwin();
     putchar('\n');
     cleanup();
     exit(0);
@@ -2921,11 +3063,11 @@ void cleanup() {
 #endif
 }
 
-static void edit_abort(int arg) {
+void edit_abort(int arg) {
   (void)arg;
-  wrefresh(com_win);
+  ee_wrefresh(com_win);
   resetty();
-  endwin();
+  if(!profiling_mode) endwin();
   putchar('\n');
   cleanup();
   exit(1);
@@ -2977,17 +3119,17 @@ int write_file(char *file_name, bool warn_if_exists) {
   if (write_flag != 0) {
     if ((temp_fp = fopen(file_name, "w")) == nullptr) {
       clear_com_win = true;
-      wmove(com_win, 0, 0);
-      wclrtoeol(com_win);
-      wprintw(com_win, create_file_fail_msg, file_name);
-      wrefresh(com_win);
+      ee_wmove(com_win, 0, 0);
+      ee_wclrtoeol(com_win);
+      ee_wprintw(com_win, create_file_fail_msg, file_name);
+      ee_wrefresh(com_win);
       return 0;
     }
 
-    wmove(com_win, 0, 0);
-    wclrtoeol(com_win);
-    wprintw(com_win, writing_file_msg, file_name);
-    wrefresh(com_win);
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, writing_file_msg, file_name);
+    ee_wrefresh(com_win);
     cr = '\n';
     out_line = first_line;
     while (out_line != nullptr) {
@@ -3004,10 +3146,10 @@ int write_file(char *file_name, bool warn_if_exists) {
       lines++;
     }
     fclose(temp_fp);
-    wmove(com_win, 0, 0);
-    wclrtoeol(com_win);
-    wprintw(com_win, file_written_msg, file_name, lines, charac);
-    wrefresh(com_win);
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, file_written_msg, file_name, lines, charac);
+    ee_wrefresh(com_win);
     return 1;
   }
   return 0;
@@ -3023,10 +3165,10 @@ int search(int display_message) {
     return 0;
   }
   if (display_message != 0) {
-    wmove(com_win, 0, 0);
-    wclrtoeol(com_win);
-    wprintw(com_win, "%s", searching_msg);
-    wrefresh(com_win);
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, "%s", searching_msg);
+    ee_wrefresh(com_win);
     clear_com_win = true;
   }
   lines_moved = 0;
@@ -3076,9 +3218,9 @@ int search(int display_message) {
   }
   if (found != 0) {
     if (display_message != 0) {
-      wmove(com_win, 0, 0);
-      wclrtoeol(com_win);
-      wrefresh(com_win);
+      ee_wmove(com_win, 0, 0);
+      ee_wclrtoeol(com_win);
+      ee_wrefresh(com_win);
     }
     if (lines_moved == 0) {
       while (position < iter) {
@@ -3102,18 +3244,18 @@ int search(int display_message) {
     }
   } else {
     if (display_message != 0) {
-      wmove(com_win, 0, 0);
-      wclrtoeol(com_win);
-      wprintw(com_win, str_not_found_msg, srch_str);
-      wrefresh(com_win);
+      ee_wmove(com_win, 0, 0);
+      ee_wclrtoeol(com_win);
+      ee_wprintw(com_win, str_not_found_msg, srch_str);
+      ee_wrefresh(com_win);
     }
-    wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+    ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
   }
   return found;
 }
 
 /* prompt and read search string (srch_str)	*/
-static void search_prompt() {
+void search_prompt() {
   if (srch_str != nullptr) {
     free(srch_str);
   }
@@ -3137,20 +3279,20 @@ static void search_prompt() {
 void set_mark() {
   mark_line = curr_line;
   mark_position = position;
-  wmove(com_win, 0, 0);
-  wclrtoeol(com_win);
-  wprintw(com_win, "Mark set.");
-  wrefresh(com_win);
+  ee_wmove(com_win, 0, 0);
+  ee_wclrtoeol(com_win);
+  ee_wprintw(com_win, "Mark set.");
+  ee_wrefresh(com_win);
   clear_com_win = true;
 }
 
 /* copy or cut the region between the mark and the cursor */
 void copy_region(bool cut) {
   if (!mark_line) {
-    wmove(com_win, 0, 0);
-    wclrtoeol(com_win);
-    wprintw(com_win, "No mark set.");
-    wrefresh(com_win);
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, "No mark set.");
+    ee_wrefresh(com_win);
     clear_com_win = true;
     return;
   }
@@ -3166,10 +3308,10 @@ void copy_region(bool cut) {
   }
   if (!valid) {
     mark_line = nullptr;
-    wmove(com_win, 0, 0);
-    wclrtoeol(com_win);
-    wprintw(com_win, "Mark invalid (line deleted).");
-    wrefresh(com_win);
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, "Mark invalid (line deleted).");
+    ee_wrefresh(com_win);
     clear_com_win = true;
     return;
   }
@@ -3224,10 +3366,10 @@ void copy_region(bool cut) {
     cb_ptr += (end_pos - 1);
   }
   *cb_ptr = '\0';
-  wmove(com_win, 0, 0);
-  wclrtoeol(com_win);
-  wprintw(com_win, cut ? "Region cut." : "Region copied.");
-  wrefresh(com_win);
+  ee_wmove(com_win, 0, 0);
+  ee_wclrtoeol(com_win);
+  ee_wprintw(com_win, cut ? "Region cut." : "Region copied.");
+  ee_wrefresh(com_win);
   clear_com_win = true;
   /* If cutting, simulate backspacing to delete the region */
   if (cut) {
@@ -3252,10 +3394,10 @@ void copy_region(bool cut) {
 /* paste text from the clipboard */
 void paste_region() {
   if (!clipboard_buf) {
-    wmove(com_win, 0, 0);
-    wclrtoeol(com_win);
-    wprintw(com_win, "Clipboard empty.");
-    wrefresh(com_win);
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, "Clipboard empty.");
+    ee_wrefresh(com_win);
     clear_com_win = true;
     return;
   }
@@ -3301,10 +3443,10 @@ void replace_prompt() {
         insert(replace_term[i]);
       }
     }
-    wmove(com_win, 0, 0);
-    wclrtoeol(com_win);
-    wprintw(com_win, "Replaced 1 occurrence.");
-    wrefresh(com_win);
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, "Replaced 1 occurrence.");
+    ee_wrefresh(com_win);
     clear_com_win = true;
   }
   if (replace_term)
@@ -3314,10 +3456,10 @@ void replace_prompt() {
 /* append the region between the mark and cursor to the existing clipboard */
 void append_region(bool cut) {
   if (!mark_line) {
-    wmove(com_win, 0, 0);
-    wclrtoeol(com_win);
-    wprintw(com_win, "No mark set.");
-    wrefresh(com_win);
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, "No mark set.");
+    ee_wrefresh(com_win);
     clear_com_win = true;
     return;
   }
@@ -3389,10 +3531,10 @@ void append_region(bool cut) {
   }
   *cb_ptr = '\0';
 
-  wmove(com_win, 0, 0);
-  wclrtoeol(com_win);
-  wprintw(com_win, cut ? "Region cut & appended." : "Region appended.");
-  wrefresh(com_win);
+  ee_wmove(com_win, 0, 0);
+  ee_wclrtoeol(com_win);
+  ee_wprintw(com_win, cut ? "Region cut & appended." : "Region appended.");
+  ee_wrefresh(com_win);
   clear_com_win = true;
 
   /* Simulate backspacing for cuts */
@@ -3416,10 +3558,10 @@ int search_reverse(int display_message) {
     return 0;
 
   if (display_message) {
-    wmove(com_win, 0, 0);
-    wclrtoeol(com_win);
-    wprintw(com_win, "           ...searching reverse");
-    wrefresh(com_win);
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, "           ...searching reverse");
+    ee_wrefresh(com_win);
     clear_com_win = true;
   }
 
@@ -3461,9 +3603,9 @@ int search_reverse(int display_message) {
 
   if (found) {
     if (display_message) {
-      wmove(com_win, 0, 0);
-      wclrtoeol(com_win);
-      wrefresh(com_win);
+      ee_wmove(com_win, 0, 0);
+      ee_wclrtoeol(com_win);
+      ee_wrefresh(com_win);
     }
     /* Move cursor to the found location */
     int new_pos = (srch_1 - srch_line->line) + 1;
@@ -3477,12 +3619,12 @@ int search_reverse(int display_message) {
       right(1);
   } else {
     if (display_message) {
-      wmove(com_win, 0, 0);
-      wclrtoeol(com_win);
-      wprintw(com_win, str_not_found_msg, srch_str);
-      wrefresh(com_win);
+      ee_wmove(com_win, 0, 0);
+      ee_wclrtoeol(com_win);
+      ee_wprintw(com_win, str_not_found_msg, srch_str);
+      ee_wrefresh(com_win);
     }
-    wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+    ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
   }
   return found;
 }
@@ -3645,7 +3787,7 @@ void del_line() {
   dlt_line->line_length = 1 + copy_len;
   *point = '\0';
   curr_line->line_length = position;
-  wclrtoeol(text_win);
+  ee_wclrtoeol(text_win);
   if (curr_line->next_line != nullptr) {
     right(0);
     delete_char_at_cursor(0);
@@ -3753,7 +3895,7 @@ void move_rel(int direction, int lines) {
       scanline(point);
     }
   }
-  wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+  ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
 }
 
 /* go to end of line			*/
@@ -3768,7 +3910,7 @@ void eol() {
     point = curr_line->line + position - 1;
     scanline(point);
   }
-  wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+  ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
 }
 
 /* move to beginning of line	*/
@@ -3781,7 +3923,7 @@ void bol() {
     scr_pos = 0;
     up();
   }
-  wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+  ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
 }
 
 /* advance to beginning of next line	*/
@@ -3840,15 +3982,15 @@ void sh_command(const char *string) {
    */
 
   if (!in_pipe) {
-    keypad(com_win, false);
-    keypad(text_win, false);
+    ee_keypad(com_win, false);
+    ee_keypad(text_win, false);
     echo();
     nl();
     noraw();
     resetty();
 
 #ifndef NCURSE
-    endwin();
+    if(!profiling_mode) endwin();
 #endif
   }
 
@@ -3981,13 +4123,13 @@ void sh_command(const char *string) {
 
   if (!in_pipe) {
     fixterm();
-    noecho();
-    nonl();
-    raw();
-    keypad(text_win, true);
-    keypad(com_win, true);
+    if(!profiling_mode) noecho();
+    if(!profiling_mode) nonl();
+    if(!profiling_mode) raw();
+    ee_keypad(text_win, true);
+    ee_keypad(com_win, true);
     if (info_window) {
-      clearok(info_win, true);
+      if(!profiling_mode) clearok(info_win, true);
     }
   }
 
@@ -3997,33 +4139,33 @@ void sh_command(const char *string) {
 /* set up the terminal for operating with ae	*/
 void set_up_term() {
   if (!curses_initialized) {
-    initscr();
-    savetty();
-    noecho();
-    raw();
-    nonl();
+    if(!profiling_mode) initscr();
+    if(!profiling_mode) savetty();
+    if(!profiling_mode) noecho();
+    if(!profiling_mode) raw();
+    if(!profiling_mode) nonl();
 
     if (has_colors()) {
-      start_color();
-      use_default_colors();
-      init_pair(1, COLOR_GREEN, -1);   // comment
-      init_pair(2, COLOR_YELLOW, -1);  // string
-      init_pair(3, COLOR_CYAN, -1);    // number
-      init_pair(4, COLOR_YELLOW, -1);  // type
-      init_pair(5, COLOR_BLUE, -1);    // function
-      init_pair(6, COLOR_WHITE, -1);   // variable
-      init_pair(7, COLOR_MAGENTA, -1); // keyword
-      init_pair(8, COLOR_RED, -1);     // error/diagnostic
+      if(!profiling_mode) start_color();
+      if(!profiling_mode) use_default_colors();
+      if(!profiling_mode) init_pair(1, COLOR_GREEN, -1);   // comment
+      if(!profiling_mode) init_pair(2, COLOR_YELLOW, -1);  // string
+      if(!profiling_mode) init_pair(3, COLOR_CYAN, -1);    // number
+      if(!profiling_mode) init_pair(4, COLOR_YELLOW, -1);  // type
+      if(!profiling_mode) init_pair(5, COLOR_BLUE, -1);    // function
+      if(!profiling_mode) init_pair(6, COLOR_WHITE, -1);   // variable
+      if(!profiling_mode) init_pair(7, COLOR_MAGENTA, -1); // keyword
+      if(!profiling_mode) init_pair(8, COLOR_RED, -1);     // error/diagnostic
     }
 
     curses_initialized = true;
   }
 
-  idlok(stdscr, true);
-  com_win = newwin(1, COLS, (LINES - 1), 0);
-  keypad(com_win, true);
-  idlok(com_win, true);
-  wrefresh(com_win);
+  ee_idlok(stdscr, true);
+  com_win = (!profiling_mode) ? nullptr : newwin(1, COLS, (LINES - 1), 0);
+  ee_keypad(com_win, true);
+  ee_idlok(com_win, true);
+  ee_wrefresh(com_win);
 
   resize_info_win();
 
@@ -4048,9 +4190,13 @@ void resize_check() {
   delwin(text_win);
   delwin(com_win);
   delwin(help_win);
+  if (profiling_mode) {
+    if (LINES == 0) LINES = 24;
+    if (COLS == 0) COLS = 80;
+  }
   set_up_term();
   redraw();
-  wrefresh(text_win);
+  ee_wrefresh(text_win);
 }
 
 char item_alpha[] = "abcdefghijklmnopqrstuvwxyz0123456789 ";
@@ -4097,10 +4243,10 @@ int menu_op(struct menu_entries menu_list[]) {
    */
 
   if (max_width > COLS) {
-    wmove(com_win, 0, 0);
-    werase(com_win);
-    wprintw(com_win, "%s", menu_too_lrg_msg);
-    wrefresh(com_win);
+    ee_wmove(com_win, 0, 0);
+    ee_werase(com_win);
+    ee_wprintw(com_win, "%s", menu_too_lrg_msg);
+    ee_wrefresh(com_win);
     clear_com_win = true;
     return 0;
   }
@@ -4120,7 +4266,7 @@ int menu_op(struct menu_entries menu_list[]) {
   }
 
   if (LINES >= (vert_size + 8)) {
-    if (menu_list[0].argument != MENU_WARN) {
+    if (menu_list[0].value != MENU_WARN) {
       max_height = vert_size + 8;
     } else {
       max_height = vert_size + 7;
@@ -4129,8 +4275,8 @@ int menu_op(struct menu_entries menu_list[]) {
   }
   x_off = (COLS - max_width) / 2;
   y_off = (LINES - max_height - 1) / 2;
-  temp_win = newwin(max_height, max_width, y_off, x_off);
-  keypad(temp_win, true);
+  temp_win = (!profiling_mode) ? nullptr : newwin(max_height, max_width, y_off, x_off);
+  ee_keypad(temp_win, true);
 
   paint_menu(menu_list, max_width, max_height, list_size, top_offset, temp_win,
              off_start, vert_size);
@@ -4139,12 +4285,12 @@ int menu_op(struct menu_entries menu_list[]) {
 
   do {
     if (off_start > 2) {
-      wmove(temp_win, (1 + counter + top_offset - off_start), 3);
+      ee_wmove(temp_win, (1 + counter + top_offset - off_start), 3);
     } else {
-      wmove(temp_win, (counter + top_offset - off_start), 3);
+      ee_wmove(temp_win, (counter + top_offset - off_start), 3);
     }
 
-    wrefresh(temp_win);
+    ee_wrefresh(temp_win);
     in = wgetch(temp_win);
     input = in;
     if (input == -1) {
@@ -4185,7 +4331,7 @@ int menu_op(struct menu_entries menu_list[]) {
         }
         break;
       case '\033': /* escape key	*/
-        if (menu_list[0].argument != MENU_WARN) {
+        if (menu_list[0].value != MENU_WARN) {
           counter = 0;
         }
         break;
@@ -4233,19 +4379,19 @@ int menu_op(struct menu_entries menu_list[]) {
     }
   } while ((input != '\r') && (input != '\n') && (counter != 0));
 
-  werase(temp_win);
-  wrefresh(temp_win);
+  ee_werase(temp_win);
+  ee_wrefresh(temp_win);
   delwin(temp_win);
 
   if (counter > 0 && ((menu_list[counter].procedure != nullptr) ||
-      (menu_list[counter].iprocedure != nullptr) ||
-      (menu_list[counter].nprocedure != nullptr))) {
-    if (menu_list[counter].argument != -1) {
-      (*menu_list[counter].iprocedure)(menu_list[counter].argument);
-    } else if (menu_list[counter].ptr_argument != nullptr) {
-      (*menu_list[counter].procedure)(menu_list[counter].ptr_argument);
+      (menu_list[counter].procedure2 != nullptr) ||
+      (menu_list[counter].procedure3 != nullptr))) {
+    if (menu_list[counter].value != -1) {
+      (*menu_list[counter].procedure2)(menu_list[counter].value);
+    } else if (menu_list[counter].ptr_menu != nullptr) {
+      (*menu_list[counter].procedure)(menu_list[counter].ptr_menu);
     } else {
-      (*menu_list[counter].nprocedure)();
+      (*menu_list[counter].procedure3)();
     }
   }
 
@@ -4259,13 +4405,13 @@ int menu_op(struct menu_entries menu_list[]) {
 #endif
 
 #ifdef HAS_MENU
-static void paint_menu(struct menu_entries menu_list[], int max_width,
+void paint_menu(struct menu_entries menu_list[], int max_width,
                        int max_height, int list_size, int top_offset,
                        WINDOW *menu_win, int off_start, int vert_size) {
   int counter;
   int temp_int;
 
-  werase(menu_win);
+  ee_werase(menu_win);
 
   /*
    |	output top and bottom portions of menu box only if window
@@ -4273,28 +4419,28 @@ static void paint_menu(struct menu_entries menu_list[], int max_width,
    */
 
   if (max_height > vert_size) {
-    wmove(menu_win, 1, 1);
+    ee_wmove(menu_win, 1, 1);
     if (!nohighlight) {
       wstandout(menu_win);
     }
-    waddch(menu_win, '+');
+    ee_waddch(menu_win, '+');
     for (counter = 0; counter < (max_width - 4); counter++) {
-      waddch(menu_win, '-');
+      ee_waddch(menu_win, '-');
     }
-    waddch(menu_win, '+');
+    ee_waddch(menu_win, '+');
 
-    wmove(menu_win, (max_height - 2), 1);
-    waddch(menu_win, '+');
+    ee_wmove(menu_win, (max_height - 2), 1);
+    ee_waddch(menu_win, '+');
     for (counter = 0; counter < (max_width - 4); counter++) {
-      waddch(menu_win, '-');
+      ee_waddch(menu_win, '-');
     }
-    waddch(menu_win, '+');
+    ee_waddch(menu_win, '+');
     wstandend(menu_win);
-    wmove(menu_win, 2, 3);
-    waddstr(menu_win, menu_list[0].item_string);
-    wmove(menu_win, (max_height - 3), 3);
-    if (menu_list[0].argument != MENU_WARN) {
-      waddstr(menu_win, menu_cancel_msg);
+    ee_wmove(menu_win, 2, 3);
+    ee_waddstr(menu_win, menu_list[0].item_string);
+    ee_wmove(menu_win, (max_height - 3), 3);
+    if (menu_list[0].value != MENU_WARN) {
+      ee_waddstr(menu_win, menu_cancel_msg);
     }
   }
   if (!nohighlight) {
@@ -4310,38 +4456,38 @@ static void paint_menu(struct menu_entries menu_list[], int max_width,
       }
     }
 
-    wmove(menu_win, temp_int, 1);
-    waddch(menu_win, '|');
-    wmove(menu_win, temp_int, (max_width - 2));
-    waddch(menu_win, '|');
+    ee_wmove(menu_win, temp_int, 1);
+    ee_waddch(menu_win, '|');
+    ee_wmove(menu_win, temp_int, (max_width - 2));
+    ee_waddch(menu_win, '|');
   }
   wstandend(menu_win);
 
   if (list_size > vert_size) {
     for (counter = off_start; counter < (off_start + vert_size); counter++) {
-      wmove(menu_win, (top_offset + counter - off_start), 3);
+      ee_wmove(menu_win, (top_offset + counter - off_start), 3);
       if (list_size > 1) {
-        wprintw(menu_win, "%c) ",
+        ee_wprintw(menu_win, "%c) ",
                 item_alpha[min((counter - 1), MAX_ALPHA_CHAR)]);
       }
-      waddstr(menu_win, menu_list[counter].item_string);
+      ee_waddstr(menu_win, menu_list[counter].item_string);
       if (off_start > 1) {
-        wmove(menu_win, top_offset, (max_width - 12));
-        wprintw(menu_win, "%s", more_above_str);
+        ee_wmove(menu_win, top_offset, (max_width - 12));
+        ee_wprintw(menu_win, "%s", more_above_str);
       }
       if ((off_start + vert_size - 1) < list_size) {
-        wmove(menu_win, (top_offset + vert_size - 1), (max_width - 12));
-        wprintw(menu_win, "%s", more_below_str);
+        ee_wmove(menu_win, (top_offset + vert_size - 1), (max_width - 12));
+        ee_wprintw(menu_win, "%s", more_below_str);
       }
     }
   } else {
     for (counter = 1; counter <= list_size; counter++) {
-      wmove(menu_win, (top_offset + counter - 1), 3);
+      ee_wmove(menu_win, (top_offset + counter - 1), 3);
       if (list_size > 1) {
-        wprintw(menu_win, "%c) ",
+        ee_wprintw(menu_win, "%c) ",
                 item_alpha[min((counter - 1), MAX_ALPHA_CHAR)]);
       }
-      waddstr(menu_win, menu_list[counter].item_string);
+      ee_waddstr(menu_win, menu_list[counter].item_string);
     }
   }
 }
@@ -4350,32 +4496,32 @@ static void paint_menu(struct menu_entries menu_list[], int max_width,
 void help() {
   int counter;
 
-  werase(help_win);
-  clearok(help_win, true);
+  ee_werase(help_win);
+  if(!profiling_mode) clearok(help_win, true);
   for (counter = 0; counter < 22; counter++) {
-    wmove(help_win, counter, 0);
-    waddstr(help_win,
+    ee_wmove(help_win, counter, 0);
+    ee_waddstr(help_win,
             (emacs_keys_mode) ? emacs_help_text[counter] : help_text[counter]);
   }
-  wrefresh(help_win);
-  werase(com_win);
-  wmove(com_win, 0, 0);
-  wprintw(com_win, "%s", press_any_key_msg);
-  wrefresh(com_win);
+  ee_wrefresh(help_win);
+  ee_werase(com_win);
+  ee_wmove(com_win, 0, 0);
+  ee_wprintw(com_win, "%s", press_any_key_msg);
+  ee_wrefresh(com_win);
   counter = wgetch(com_win);
   if (counter == -1) {
     edit_abort(0);
   }
-  werase(com_win);
-  wmove(com_win, 0, 0);
-  werase(help_win);
-  wrefresh(help_win);
-  wrefresh(com_win);
+  ee_werase(com_win);
+  ee_wmove(com_win, 0, 0);
+  ee_werase(help_win);
+  ee_wrefresh(help_win);
+  ee_wrefresh(com_win);
   redraw();
 }
 #endif
 
-static int get_info_win_height() {
+int get_info_win_height() {
   if (!info_window)
     return 0;
   int count = 0;
@@ -4407,19 +4553,19 @@ void resize_info_win() {
   }
 
   if (new_height > 0) {
-    info_win = newwin(new_height, COLS, 0, 0);
+    info_win = (!profiling_mode) ? nullptr : newwin(new_height, COLS, 0, 0);
     if (info_win != nullptr) {
-      idlok(info_win, true);
-      keypad(info_win, true);
+      ee_idlok(info_win, true);
+      ee_keypad(info_win, true);
     }
-    text_win = newwin(LINES - new_height - 1, COLS, new_height, 0);
+    text_win = (!profiling_mode) ? nullptr : newwin(LINES - new_height - 1, COLS, new_height, 0);
   } else {
-    text_win = newwin(LINES - 1, COLS, 0, 0);
+    text_win = (!profiling_mode) ? nullptr : newwin(LINES - 1, COLS, 0, 0);
   }
 
   if (text_win != nullptr) {
-    keypad(text_win, true);
-    idlok(text_win, true);
+    ee_keypad(text_win, true);
+    ee_idlok(text_win, true);
     wtimeout(text_win, 5000);
     last_line = getmaxy(text_win) - 1;
   }
@@ -4440,10 +4586,10 @@ void paint_info_win() {
 
   getmaxyx(info_win, height, width);
 
-  werase(info_win);
+  ee_werase(info_win);
   for (counter = 0; counter < height - 1; counter++) {
-    wmove(info_win, counter, 0);
-    wclrtoeol(info_win);
+    ee_wmove(info_win, counter, 0);
+    ee_wclrtoeol(info_win);
     if (info_type == CONTROL_KEYS) {
       if (counter < 5) {
         char *str = (emacs_keys_mode) ? emacs_control_keys[counter]
@@ -4452,7 +4598,7 @@ void paint_info_win() {
           str = gold_control_keys[counter];
         }
         if (str != nullptr && *str != '\0') {
-          waddstr(info_win, str);
+          ee_waddstr(info_win, str);
         } else {
           // If we encounter a null/empty string, we might want to skip the line
           // but we already did werase, so we just don't move or anything.
@@ -4460,13 +4606,13 @@ void paint_info_win() {
       }
     } else if (info_type == COMMANDS) {
       if (counter < 5) {
-        waddstr(info_win, command_strings[counter]);
+        ee_waddstr(info_win, command_strings[counter]);
       }
     }
   }
 
   // Construct status line
-  wmove(info_win, height - 1, 0);
+  ee_wmove(info_win, height - 1, 0);
   if (!nohighlight) {
     wstandout(info_win);
   }
@@ -4481,7 +4627,7 @@ void paint_info_win() {
 
   // Draw legend
   for (int i = 0; i < width && i < legend_len; i++) {
-    waddch(info_win, legend[i]);
+    ee_waddch(info_win, legend[i]);
   }
 
   // Fill with '=' up to status info
@@ -4492,18 +4638,18 @@ void paint_info_win() {
   }
 
   for (int i = current_x; i < status_start_x; i++) {
-    waddch(info_win, '=');
+    ee_waddch(info_win, '=');
   }
 
   // Draw status info
   if (status_start_x < width) {
-    waddstr(info_win, status_buf);
+    ee_waddstr(info_win, status_buf);
   }
 
   // Final fill if needed
   current_x = getcurx(info_win);
   for (int i = current_x; i < width; i++) {
-    waddch(info_win, '=');
+    ee_waddch(info_win, '=');
   }
 
   wstandend(info_win);
@@ -4518,12 +4664,12 @@ void no_info_window() {
   delwin(text_win);
   info_window = false;
   last_line = LINES - 2;
-  text_win = newwin((LINES - 1), COLS, 0, 0);
-  keypad(text_win, true);
-  idlok(text_win, true);
-  clearok(text_win, true);
+  text_win = (!profiling_mode) ? nullptr : newwin((LINES - 1), COLS, 0, 0);
+  ee_keypad(text_win, true);
+  ee_idlok(text_win, true);
+  if(!profiling_mode) clearok(text_win, true);
   midscreen(scr_vert, point);
-  wrefresh(text_win);
+  ee_wrefresh(text_win);
   clear_com_win = true;
 }
 
@@ -4541,18 +4687,18 @@ void create_info_window() {
   }
   last_line = LINES - (info_win_height + 2);
   delwin(text_win);
-  text_win = newwin((LINES - (info_win_height + 1)), COLS, info_win_height, 0);
-  keypad(text_win, true);
-  idlok(text_win, true);
-  werase(text_win);
+  text_win = (!profiling_mode) ? nullptr : newwin((LINES - (info_win_height + 1)), COLS, info_win_height, 0);
+  ee_keypad(text_win, true);
+  ee_idlok(text_win, true);
+  ee_werase(text_win);
   info_window = true;
-  info_win = newwin(info_win_height, COLS, 0, 0);
-  werase(info_win);
+  info_win = (!profiling_mode) ? nullptr : newwin(info_win_height, COLS, 0, 0);
+  ee_werase(info_win);
   info_type = CONTROL_KEYS;
   midscreen(min(scr_vert, last_line), point);
-  clearok(info_win, true);
+  if(!profiling_mode) clearok(info_win, true);
   paint_info_win();
-  wrefresh(text_win);
+  ee_wrefresh(text_win);
   clear_com_win = true;
 }
 
@@ -4593,10 +4739,10 @@ int file_op(int arg) {
       string = get_string(save_file_name_prompt, 1);
     }
     if ((string == nullptr) || (*string == '\0')) {
-      wmove(com_win, 0, 0);
-      wprintw(com_win, "%s", file_not_saved_msg);
-      wclrtoeol(com_win);
-      wrefresh(com_win);
+      ee_wmove(com_win, 0, 0);
+      ee_wprintw(com_win, "%s", file_not_saved_msg);
+      ee_wclrtoeol(com_win);
+      ee_wrefresh(com_win);
       clear_com_win = true;
       return 0;
     }
@@ -4641,11 +4787,11 @@ void leave_op() {
 
 void redraw() {
   if (info_window) {
-    clearok(info_win, true);
+    if(!profiling_mode) clearok(info_win, true);
     paint_info_win();
   } else {
     {
-      clearok(text_win, true);
+      if(!profiling_mode) clearok(text_win, true);
     }
   }
   midscreen(scr_vert, point);
@@ -4671,7 +4817,7 @@ bool Blank_Line(struct text *test_line) {
 }
 
 /* format the paragraph according to set margins	*/
-static void Format() {
+void Format() {
   int string_count;
   int offset;
   int temp_case;
@@ -4702,10 +4848,10 @@ static void Format() {
    |	save the currently set flags, and clear them
    */
 
-  wmove(com_win, 0, 0);
-  wclrtoeol(com_win);
-  wprintw(com_win, "%s", formatting_msg);
-  wrefresh(com_win);
+  ee_wmove(com_win, 0, 0);
+  ee_wclrtoeol(com_win);
+  ee_wprintw(com_win, "%s", formatting_msg);
+  ee_wrefresh(com_win);
 
   /*
    |	get current position in paragraph, so after formatting, the cursor
@@ -4752,10 +4898,10 @@ static void Format() {
     string_count++;
   }
 
-  wmove(com_win, 0, 0);
-  wclrtoeol(com_win);
-  wprintw(com_win, "%s", formatting_msg);
-  wrefresh(com_win);
+  ee_wmove(com_win, 0, 0);
+  ee_wclrtoeol(com_win);
+  ee_wprintw(com_win, "%s", formatting_msg);
+  ee_wrefresh(com_win);
 
   /*
    |	now get back to the start of the paragraph to start formatting
@@ -4829,10 +4975,10 @@ static void Format() {
   observ_margins = true;
   bol();
 
-  wmove(com_win, 0, 0);
-  wclrtoeol(com_win);
-  wprintw(com_win, "%s", formatting_msg);
-  wrefresh(com_win);
+  ee_wmove(com_win, 0, 0);
+  ee_wclrtoeol(com_win);
+  ee_wprintw(com_win, "%s", formatting_msg);
+  ee_wrefresh(com_win);
 
   /*
    |	create lines between margins
@@ -4895,17 +5041,17 @@ static void Format() {
   auto_format = (tmp_af != 0);
 
   midscreen(scr_vert, point);
-  werase(com_win);
-  wrefresh(com_win);
+  ee_werase(com_win);
+  ee_wrefresh(com_win);
 }
 
 static char *init_name[3] = {"/usr/share/misc/init.ee", nullptr, ".init.ee"};
 
 /* check for init file and read it if it exists	*/
-static void update_libedit_mode() {
+void update_libedit_mode() {
 #ifdef HAS_LIBEDIT
   if (el != nullptr) {
-    el_set(el, EL_EDITOR, emacs_keys_mode ? "emacs" : "vi");
+    el_set(el, EL_EDITOR, vi_keys_mode ? "vi" : (emacs_keys_mode ? "emacs" : "vi"));
   }
 #endif
 }
@@ -5108,12 +5254,12 @@ void dump_ee_conf() {
 
   option = menu_op(config_dump_menu);
 
-  werase(com_win);
-  wmove(com_win, 0, 0);
+  ee_werase(com_win);
+  ee_wmove(com_win, 0, 0);
 
   if (option == 0) {
-    wprintw(com_win, "%s", conf_not_saved_msg);
-    wrefresh(com_win);
+    ee_wprintw(com_win, "%s", conf_not_saved_msg);
+    ee_wrefresh(com_win);
     return;
   }
   if (option == 2) {
@@ -5134,8 +5280,8 @@ void dump_ee_conf() {
 
   init_file = fopen(file_name, "we");
   if (init_file == nullptr) {
-    wprintw(com_win, "%s", conf_dump_err_msg);
-    wrefresh(com_win);
+    ee_wprintw(com_win, "%s", conf_dump_err_msg);
+    ee_wrefresh(com_win);
     return;
   }
 
@@ -5199,8 +5345,8 @@ void dump_ee_conf() {
 
   fclose(init_file);
 
-  wprintw(com_win, conf_dump_success_msg, file_name);
-  wrefresh(com_win);
+  ee_wprintw(com_win, conf_dump_success_msg, file_name);
+  ee_wrefresh(com_win);
 
   if ((option == 2) && (file_name != home_dir)) {
     free(file_name);
@@ -5279,9 +5425,9 @@ void spell_op() {
   top();
   command(shell_echo_msg);
   adv_line();
-  wmove(com_win, 0, 0);
-  wprintw(com_win, "%s", spell_in_prog_msg);
-  wrefresh(com_win);
+  ee_wmove(com_win, 0, 0);
+  ee_wprintw(com_win, "%s", spell_in_prog_msg);
+  ee_wrefresh(com_win);
   command("<>!spell"); /* send contents of buffer to command 'spell'
                           and read the results back into the editor */
 }
@@ -5299,9 +5445,9 @@ void ispell_op() {
   fd = mkstemp(template);
   name = template;
   if (fd < 0) {
-    wmove(com_win, 0, 0);
-    wprintw(com_win, create_file_fail_msg, name);
-    wrefresh(com_win);
+    ee_wmove(com_win, 0, 0);
+    ee_wprintw(com_win, create_file_fail_msg, name);
+    ee_wrefresh(com_win);
     return;
   }
   close(fd);
@@ -5350,7 +5496,7 @@ int from_top(struct text *test_line) {
 }
 
 /* format the paragraph according to set margins	*/
-static void Auto_Format() {
+void Auto_Format() {
   int string_count;
   int offset;
   int temp_case;
@@ -5641,8 +5787,10 @@ void modes_op() {
             (info_window ? STATE_ON : STATE_OFF));
     sprintf(modes_menu[7].item_string, "%s %s", mode_strings[7],
             (emacs_keys_mode ? STATE_ON : STATE_OFF));
-    sprintf(modes_menu[8].item_string, "%s %d", mode_strings[8], right_margin);
-    sprintf(modes_menu[9].item_string, "%s %s", mode_strings[9],
+    sprintf(modes_menu[8].item_string, "%s %s", mode_strings[8],
+            (vi_keys_mode ? STATE_ON : STATE_OFF));
+    sprintf(modes_menu[9].item_string, "%s %d", mode_strings[9], right_margin);
+    sprintf(modes_menu[10].item_string, "%s %s", mode_strings[10],
             (ee_chinese ? STATE_ON : STATE_OFF));
 
     ret_value = menu_op(modes_menu);
@@ -5684,10 +5832,17 @@ void modes_op() {
       break;
     case 7:
       emacs_keys_mode = !emacs_keys_mode;
+      if (emacs_keys_mode) vi_keys_mode = false;
       update_libedit_mode();
       resize_info_win();
       break;
     case 8:
+      vi_keys_mode = !vi_keys_mode;
+      if (vi_keys_mode) emacs_keys_mode = false;
+      update_libedit_mode();
+      resize_info_win();
+      break;
+    case 9:
       string = get_string(margin_prompt, 1);
       if (string != nullptr) {
         counter = atoi(string);
@@ -5697,7 +5852,7 @@ void modes_op() {
         free(string);
       }
       break;
-    case 9:
+    case 10:
       ee_chinese = !ee_chinese;
       if (ee_chinese) {
         eightbit = true;
@@ -5847,10 +6002,10 @@ bool restrict_mode(void) {
     return false;
   }
 
-  wmove(com_win, 0, 0);
-  wprintw(com_win, "%s", restricted_msg);
-  wclrtoeol(com_win);
-  wrefresh(com_win);
+  ee_wmove(com_win, 0, 0);
+  ee_wprintw(com_win, "%s", restricted_msg);
+  ee_wclrtoeol(com_win);
+  ee_wrefresh(com_win);
   clear_com_win = true;
   return true;
 }
@@ -5914,7 +6069,7 @@ char *catgetlocal(const char *key, char *string) { return string; }
  |	documentation, or the X/Open Internationalization Guide.
  */
 
-static const char *get_key_name(int i) {
+const char *get_key_name(int i) {
   static char key[16];
   if (i == 0) return "^@";
   if (i < 27) {
@@ -5952,7 +6107,7 @@ static const char *get_key_binding(control_handler handler,
   return "";
 }
 
-static char *format_shortcut(const char *cmd_name, control_handler *table) {
+char *format_shortcut(const char *cmd_name, control_handler *table) {
   static char buf[64];
   control_handler h = nullptr;
   const char *short_desc = "";
@@ -5970,7 +6125,7 @@ static char *format_shortcut(const char *cmd_name, control_handler *table) {
   return buf;
 }
 
-static void update_help_strings() {
+void update_help_strings() {
   static char lines[5][128];
   static char glines[5][128];
   control_handler *tbl = emacs_keys_mode ? emacs_control_table : base_control_table;
@@ -6027,7 +6182,7 @@ static void update_help_strings() {
   gold_control_keys[4] = nullptr;
 }
 
-static void strings_init() {
+void strings_init() {
   int counter;
 
   setlocale(LC_ALL, "");
