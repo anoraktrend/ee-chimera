@@ -451,6 +451,7 @@ int pipe_in[2];           /* pipe file descriptors for input	*/
 bool out_pipe;            /* flag that info is piped out		*/
 bool in_pipe;             /* flag that info is piped in		*/
 bool formatted = false;
+bool pasting_mode = false;
 bool formatting_in_progress = false;
 bool profiling_mode = false;   /* flag indicating paragraph formatted	*/
 #ifdef HAS_AUTOFORMAT
@@ -1084,7 +1085,7 @@ int main(int argc, char *argv[]) {
     /*
      |  display line and column information
      */
-    if (info_window) {
+    if (info_window && !pasting_mode) {
 #ifdef HAS_INFO_WIN
       paint_info_win();
 #endif
@@ -1093,10 +1094,17 @@ int main(int argc, char *argv[]) {
     ee_wrefresh(text_win);
 #ifdef HAS_NCURSESW
     wint_t wch;
-    int res = wget_wch(text_win, &wch);
+    int res;
+    
+    // Set a small timeout to detect if more characters are waiting (paste)
+    if (!profiling_mode) wtimeout(text_win, 10);
+    res = wget_wch(text_win, &wch);
+    
     if (res == ERR) {
+      pasting_mode = false;
       if (errno == EINTR)
         continue;
+      // ... same timeout/redraw logic ...
       time_t now = time(nullptr);
       if (now - last_redraw_time >= 5) {
         redraw();
@@ -1104,11 +1112,19 @@ int main(int argc, char *argv[]) {
       }
       continue;
     }
-    if (res == KEY_CODE_YES) {
-      in = wch;
+    
+    // Check if another character is immediately available
+    wtimeout(text_win, 0);
+    wint_t next_wch;
+    if (wget_wch(text_win, &next_wch) != ERR) {
+      pasting_mode = true;
+      unget_wch(next_wch);
     } else {
-      in = wch;
+      pasting_mode = false;
     }
+    if (!profiling_mode) wtimeout(text_win, -1); // Restore blocking
+
+    in = wch;
 #else
     in = wgetch(text_win);
     if (in == -1) {
@@ -1222,7 +1238,7 @@ void insert(int character) {
       insert(' ');
     }
 #ifdef HAS_AUTOFORMAT
-    if (auto_format && !formatting_in_progress) {
+    if (auto_format && !formatting_in_progress && !pasting_mode) {
       formatting_in_progress = true;
       Auto_Format();
       formatting_in_progress = false;
@@ -1326,7 +1342,7 @@ void insert(int character) {
   }
 
 #ifdef HAS_AUTOFORMAT
-  if (auto_format && (character == ' ') && (!formatted) && !formatting_in_progress) {
+  if (auto_format && (character == ' ') && (!formatted) && !formatting_in_progress && !pasting_mode) {
     formatting_in_progress = true;
     Auto_Format();
     formatting_in_progress = false;
@@ -4959,11 +4975,9 @@ void Format() {
   unsigned char *temp1;
   unsigned char *temp2;
   unsigned char *temp_dword;
-  unsigned char temp_d_char[3];
+  unsigned char temp_d_char[8];
 
-  temp_d_char[0] = d_char[0];
-  temp_d_char[1] = d_char[1];
-  temp_d_char[2] = d_char[2];
+  memcpy(temp_d_char, d_char, 8);
 
   /*
    |	if observ_margins is not set, or the current line is blank,
@@ -5165,9 +5179,7 @@ void Format() {
   case_sen = (temp_case != 0);
   free(srch_str);
   srch_str = tmp_srchstr;
-  d_char[0] = temp_d_char[0];
-  d_char[1] = temp_d_char[1];
-  d_char[2] = temp_d_char[2];
+  memcpy(d_char, temp_d_char, 8);
   auto_format = (tmp_af != 0);
 
   midscreen(scr_vert, point);
@@ -5643,12 +5655,10 @@ void Auto_Format() {
   unsigned char *temp1;
   unsigned char *temp2;
   unsigned char *temp_dword;
-  unsigned char temp_d_char[3];
+  unsigned char temp_d_char[8];
   unsigned char *tmp_d_line;
 
-  temp_d_char[0] = d_char[0];
-  temp_d_char[1] = d_char[1];
-  temp_d_char[2] = d_char[2];
+  memcpy(temp_d_char, d_char, 8);
 
   /*
    |	if observ_margins is not set, or the current line is blank,
@@ -5887,9 +5897,7 @@ void Auto_Format() {
   case_sen = (temp_case != 0);
   free(srch_str);
   srch_str = tmp_srchstr;
-  d_char[0] = temp_d_char[0];
-  d_char[1] = temp_d_char[1];
-  d_char[2] = temp_d_char[2];
+  memcpy(d_char, temp_d_char, 8);
   auto_format = true;
   dlt_line->line_length = tmp_d_line_length;
   d_line = tmp_d_line;
