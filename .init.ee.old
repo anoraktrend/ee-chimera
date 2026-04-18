@@ -1,3 +1,52 @@
+16BIT
+BIND ^B bottom_of_txt
+BIND ^C copy
+BIND ^D bol
+BIND ^E command_prompt
+BIND ^F search
+BIND ^G gold_toggle
+BIND ^H backspace
+BIND ^J newline
+BIND ^L del_line
+BIND ^M newline
+BIND ^O eol
+BIND ^R redraw
+BIND ^T top_of_txt
+BIND ^U mark
+BIND ^V paste
+BIND ^W del_word
+BIND ^X cut
+BIND ^Y adv_word
+BIND ^Z replace_prompt
+BIND ^[ menu
+GBIND ^B append
+GBIND ^C del_line
+GBIND ^F search_prompt
+GBIND ^K und_char
+GBIND ^L und_line
+GBIND ^R search_reverse
+GBIND ^U mark
+GBIND ^V search
+GBIND ^W und_word
+GBIND ^X format
+GBIND ^Y prev_word
+GBIND ^Z replace_prompt
+EBIND ^A bol
+EBIND ^C command_prompt
+EBIND ^E eol
+EBIND ^H backspace
+EBIND ^J und_char
+EBIND ^K del_line
+EBIND ^L und_line
+EBIND ^M newline
+EBIND ^R und_word
+EBIND ^T top_of_txt
+EBIND ^U bottom_of_txt
+EBIND ^W del_word
+EBIND ^X search
+EBIND ^Y search_prompt
+EBIND ^Z adv_word
+EBIND ^[ menu
 NOCASE
 EXPAND
 INFO
@@ -8,4 +57,52 @@ RIGHTMARGIN 178
 HIGHLIGHT
 EIGHTBIT
 NOEMACS
-16BIT
+(null)
+BIND ^B bottom_of_txt
+BIND ^C copy
+BIND ^D bol
+BIND ^E command_prompt
+BIND ^F search
+BIND ^G gold_toggle
+BIND ^H backspace
+BIND ^J newline
+BIND ^L del_line
+BIND ^M newline
+BIND ^O eol
+BIND ^R redraw
+BIND ^T top_of_txt
+BIND ^U mark
+BIND ^V paste
+BIND ^W del_word
+BIND ^X cut
+BIND ^Y adv_word
+BIND ^Z replace_prompt
+BIND ^[ menu
+GBIND ^B append
+GBIND ^C del_line
+GBIND ^F search_prompt
+GBIND ^K und_char
+GBIND ^L und_line
+GBIND ^R search_reverse
+GBIND ^U mark
+GBIND ^V search
+GBIND ^W und_word
+GBIND ^X format
+GBIND ^Y prev_word
+GBIND ^Z replace_prompt
+EBIND ^A bol
+EBIND ^C command_prompt
+EBIND ^E eol
+EBIND ^H backspace
+EBIND ^J und_char
+EBIND ^K del_line
+EBIND ^L und_line
+EBIND ^M newline
+EBIND ^R und_word
+EBIND ^T top_of_txt
+EBIND ^U bottom_of_txt
+EBIND ^W del_word
+EBIND ^X search
+EBIND ^Y search_prompt
+EBIND ^Z adv_word
+EBIND ^[ menu
