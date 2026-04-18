@@ -5865,6 +5865,9 @@ void modes_op() {
 #endif /* NCURSE */
       redraw();
       break;
+    case 11:
+      // Handled by menu struct call to dump_ee_conf
+      break;
     default:
       break;
     }
@@ -6200,7 +6203,12 @@ void strings_init() {
   mode_strings[4] = catgetlocal("auto_paragraph_format", "auto-paragraph format");
   mode_strings[5] = catgetlocal("eightbit_characters", "eightbit characters  ");
   mode_strings[6] = catgetlocal("info_window_toggle", "info window          ");
-  mode_strings[8] = catgetlocal("right_margin_toggle", "right margin         ");
+  mode_strings[7] = catgetlocal("emacs_key_bindings", "emacs key bindings   ");
+  mode_strings[8] = catgetlocal("vi_key_bindings", "vi key bindings      ");
+  mode_strings[9] = catgetlocal("right_margin_toggle", "right margin         ");
+  mode_strings[10] = catgetlocal("sixteen_bit_chars", "16 bit characters    ");
+  mode_strings[11] = catgetlocal("save_editor_config", "save editor configuration");
+  
   leave_menu[0].item_string = catgetlocal("leave_menu", "leave menu");
   leave_menu[1].item_string = catgetlocal("save_changes", "save changes");
   leave_menu[2].item_string = catgetlocal("no_save", "no save");
@@ -6271,7 +6279,6 @@ void strings_init() {
                                   "                                  ");
   help_text[21] = catgetlocal("usage_options", "+# :go to line #  -i :no info window  -e : "
                                   "don't expand tabs  -h :no highlight");
-  update_help_strings();
 
   command_strings[0] =
       catgetlocal("command_strings_1", "help : get help info  |file  : print file name         "
@@ -6372,10 +6379,10 @@ void strings_init() {
   NOHIGHLIGHT = catgetlocal("cmd_nohighlight", "NOHIGHLIGHT");
   EIGHTBIT = catgetlocal("cmd_eightbit", "EIGHTBIT");
   NOEIGHTBIT = catgetlocal("cmd_noeightbit", "NOEIGHTBIT");
-  /*
-   |	additions
-   */
-  mode_strings[7] = catgetlocal("emacs_key_bindings", "emacs key bindings   ");
+  
+  VI_string = catgetlocal("cmd_vi", "VI");
+  NOVI_string = catgetlocal("cmd_novi", "NOVI");
+
   emacs_help_text[0] = help_text[0];
   emacs_help_text[1] =
       catgetlocal("emacs_help_1", "^a beginning of line    ^i tab                  ^r "
@@ -6429,6 +6436,7 @@ void strings_init() {
   emacs_control_keys[4] =
       catgetlocal("emacs_control_5", "^c command        ^d delete char    ^j undelete char     "
                        "                         ");
+  
   EMACS_string = catgetlocal("cmd_emacs", "EMACS");
   NOEMACS_string = catgetlocal("cmd_noemacs", "NOEMACS");
   BIND = catgetlocal("bind_cmd", "BIND");
@@ -6438,7 +6446,7 @@ void strings_init() {
   conf_dump_err_msg = catgetlocal(
       "config_err_msg", "unable to open .init.ee for writing, no configuration saved!");
   conf_dump_success_msg = catgetlocal("config_saved_msg", "ee configuration saved in file %s");
-  modes_menu[10].item_string = catgetlocal("save_editor_config", "save editor configuration");
+  modes_menu[11].item_string = mode_strings[11];
   config_dump_menu[0].item_string = catgetlocal("save_ee_config", "save ee configuration");
   config_dump_menu[1].item_string =
       catgetlocal("save_current_dir", "save in current directory");
@@ -6448,9 +6456,6 @@ void strings_init() {
   menu_too_lrg_msg = catgetlocal("menu_too_large_alt", "menu too large for window");
   more_above_str = catgetlocal("more_above", "^^more^^");
   more_below_str = catgetlocal("more_below", "VVmoreVV");
-  mode_strings[9] = catgetlocal("sixteen_bit_chars", "16 bit characters    ");
-  chinese_cmd = catgetlocal("cmd_16bit", "16BIT");
-  nochinese_cmd = catgetlocal("cmd_no16bit", "NO16BIT");
 
   commands[0] = HELP;
   commands[1] = WRITE;
@@ -6509,6 +6514,8 @@ void strings_init() {
   init_strings[22] = GBIND;
   init_strings[23] = EBIND;
   init_strings[24] = nullptr;
+  
+  update_help_strings();
 
   /*
    |	allocate space for strings here for settings menu

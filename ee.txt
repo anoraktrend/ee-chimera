@@ -173,6 +173,9 @@ root {
     sixteen_bit_chars { "16 bit characters    " }
     cmd_16bit { "16BIT" }
     cmd_no16bit { "NO16BIT" }
+    vi_key_bindings { "vi key bindings      " }
+    cmd_vi { "VI" }
+    cmd_novi { "NOVI" }
     
     // New 1.6.0 strings
     bind_cmd { "BIND" }
