@@ -6281,13 +6281,22 @@ char *format_shortcut(const char *cmd_name, control_handler *table) {
   return current_buf;
 }
 
+#ifndef RESDIR_PATH
+#define RESDIR_PATH "/usr/local/share/ee/"
+#endif
+
 void strings_init() {
   int counter;
 
   setlocale(LC_ALL, "");
 #ifdef HAS_ICU
   UErrorCode status = U_ZERO_ERROR;
+  // Try opening bundle in current directory first, then in system path
   icu_bundle = ures_open(".", uloc_getDefault(), &status);
+  if (U_FAILURE(status)) {
+    status = U_ZERO_ERROR;
+    icu_bundle = ures_open(RESDIR_PATH, uloc_getDefault(), &status);
+  }
 #endif
 
   modes_menu[0].item_string = catgetlocal("modes_menu", "modes menu");
