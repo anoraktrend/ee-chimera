@@ -104,7 +104,6 @@ void gold_toggle(void);
 void gold_append(void);
 void gold_search_reverse(void);
 void resize_info_win(void);
-void update_help_strings(void);
 #ifdef HAS_ICU
 static int u_char_width(UChar32 c, int column);
 #endif
@@ -548,6 +547,9 @@ struct menu_entries modes_menu[] = {
 
 char *mode_strings[12];
 
+#define MAX_INFO_LINES 12
+char *dynamic_info_lines[MAX_INFO_LINES];
+int num_info_lines = 0;
 struct menu_entries config_dump_menu[] = {
     {"", nullptr, nullptr, nullptr, nullptr, 0},
     {"", nullptr, nullptr, nullptr, nullptr, -1},
@@ -4666,22 +4668,69 @@ void help() {
 }
 #endif
 #endif
+void generate_dynamic_info() {
+  static char total_buf[4096];
+  static char lines_buf[MAX_INFO_LINES][256];
+  total_buf[0] = '\0';
+  num_info_lines = 0;
+
+  if (!info_window) return;
+
+  control_handler *tbl = base_control_table;
+  if (gold) tbl = gold_control_table;
+  else if (emacs_keys_mode) tbl = emacs_control_table;
+
+  // Add mandatory main menu hint if menu is enabled
+#ifdef HAS_MENU
+  strcat(total_buf, "Esc menu  ");
+#endif
+
+  for (int i = 0; commands_table[i].name != nullptr; i++) {
+    const char *key = get_key_binding(commands_table[i].handler, tbl);
+    if (key[0] != '\0') {
+      char item[64];
+      snprintf(item, sizeof(item), "%s %s  ", key, commands_table[i].short_desc);
+      if (strlen(total_buf) + strlen(item) < sizeof(total_buf) - 1) {
+        strcat(total_buf, item);
+      }
+    }
+  }
+
+  // Word wrap
+  int width = COLS;
+  if (width <= 0) width = 80;
+  
+  char *p = total_buf;
+  while (*p != '\0' && num_info_lines < MAX_INFO_LINES - 1) {
+    int len = strlen(p);
+    if (len > width - 1) {
+      int split = width - 1;
+      while (split > 0 && p[split] != ' ') split--;
+      if (split == 0) split = width - 1;
+      
+      int cpy_len = min(split, 255);
+      strncpy(lines_buf[num_info_lines], p, cpy_len);
+      lines_buf[num_info_lines][cpy_len] = '\0';
+      dynamic_info_lines[num_info_lines] = lines_buf[num_info_lines];
+      num_info_lines++;
+      p += split;
+      while (*p == ' ') p++;
+    } else {
+      strncpy(lines_buf[num_info_lines], p, 255);
+      lines_buf[num_info_lines][255] = '\0';
+      dynamic_info_lines[num_info_lines] = lines_buf[num_info_lines];
+      num_info_lines++;
+      break;
+    }
+  }
+}
+
 
 int get_info_win_height() {
   if (!info_window)
     return 0;
-  int count = 0;
-  if (info_type == CONTROL_KEYS) {
-    char **keys = (gold) ? gold_control_keys : (emacs_keys_mode ? emacs_control_keys : control_keys);
-    while (count < 5 && keys[count] != nullptr && keys[count][0] != '\0') {
-      count++;
-    }
-  } else if (info_type == COMMANDS) {
-    while (count < 5 && command_strings[count] != nullptr && command_strings[count][0] != '\0') {
-      count++;
-    }
-  }
-  return max(1, count + 1); // At least 1 for status line
+  generate_dynamic_info();
+  return max(1, num_info_lines + 1); 
 }
 
 void resize_info_win() {
@@ -4730,30 +4779,17 @@ void paint_info_win() {
     return;
   }
 
+  generate_dynamic_info();
+  
+  if (info_win == nullptr) return;
   getmaxyx(info_win, height, width);
 
   ee_werase(info_win);
-  for (counter = 0; counter < height - 1; counter++) {
+  for (counter = 0; counter < num_info_lines && counter < height - 1; counter++) {
     ee_wmove(info_win, counter, 0);
     ee_wclrtoeol(info_win);
-    if (info_type == CONTROL_KEYS) {
-      if (counter < 5) {
-        char *str = (emacs_keys_mode) ? emacs_control_keys[counter]
-                                      : control_keys[counter];
-        if (gold) {
-          str = gold_control_keys[counter];
-        }
-        if (str != nullptr && *str != '\0') {
-          ee_waddstr(info_win, str);
-        } else {
-          // If we encounter a null/empty string, we might want to skip the line
-          // but we already did werase, so we just don't move or anything.
-        }
-      }
-    } else if (info_type == COMMANDS) {
-      if (counter < 5) {
-        ee_waddstr(info_win, command_strings[counter]);
-      }
+    if (dynamic_info_lines[counter] != nullptr) {
+      ee_waddstr(info_win, dynamic_info_lines[counter]);
     }
   }
 
@@ -4764,8 +4800,8 @@ void paint_info_win() {
   }
 
   char status_buf[128];
-  snprintf(status_buf, sizeof(status_buf), " line %d col %d top %d=",
-           curr_line->line_number, scr_horz, absolute_lin);
+  snprintf(status_buf, sizeof(status_buf), " line %d col %d top %d=", 
+           curr_line->line_number, scr_pos, absolute_lin);
   int status_len = strlen(status_buf);
 
   char const *legend = "^ = Ctrl key ---- access HELP through menu ---";
@@ -4777,7 +4813,8 @@ void paint_info_win() {
   }
 
   // Fill with '=' up to status info
-  int current_x = getcurx(info_win);
+  int current_x = 0;
+  if (!profiling_mode) current_x = getcurx(info_win);
   int status_start_x = width - status_len;
   if (status_start_x < current_x) {
     status_start_x = current_x;
@@ -4793,60 +4830,18 @@ void paint_info_win() {
   }
 
   // Final fill if needed
-  current_x = getcurx(info_win);
+  current_x = 0;
+  if (!profiling_mode) current_x = getcurx(info_win);
   for (int i = current_x; i < width; i++) {
     ee_waddch(info_win, '=');
   }
 
-  wstandend(info_win);
-  wnoutrefresh(info_win);
+  if (!nohighlight) {
+    wstandend(info_win);
+  }
+  ee_wrefresh(info_win);
 }
 
-void no_info_window() {
-  if (!info_window) {
-    return;
-  }
-  delwin(info_win);
-  delwin(text_win);
-  info_window = false;
-  last_line = LINES - 2;
-  text_win = profiling_mode ? nullptr : newwin((LINES - 1), COLS, 0, 0);
-  ee_keypad(text_win, true);
-  ee_idlok(text_win, true);
-  if(!profiling_mode) clearok(text_win, true);
-  midscreen(scr_vert, point);
-  ee_wrefresh(text_win);
-  clear_com_win = true;
-}
-
-void create_info_window() {
-  int info_win_height = 0;
-  if (info_window) {
-    return;
-  }
-  if (LINES < 10) {
-    info_win_height = 2;
-  } else if (LINES < 15) {
-    info_win_height = 4;
-  } else {
-    info_win_height = 6;
-  }
-  last_line = LINES - (info_win_height + 2);
-  delwin(text_win);
-  text_win = profiling_mode ? nullptr : newwin((LINES - (info_win_height + 1)), COLS, info_win_height, 0);
-  ee_keypad(text_win, true);
-  ee_idlok(text_win, true);
-  ee_werase(text_win);
-  info_window = true;
-  info_win = profiling_mode ? nullptr : newwin(info_win_height, COLS, 0, 0);
-  ee_werase(info_win);
-  info_type = CONTROL_KEYS;
-  midscreen(min(scr_vert, last_line), point);
-  if(!profiling_mode) clearok(info_win, true);
-  paint_info_win();
-  ee_wrefresh(text_win);
-  clear_com_win = true;
-}
 
 int file_op(int arg) {
   char *string;
@@ -6269,63 +6264,6 @@ char *format_shortcut(const char *cmd_name, control_handler *table) {
   return current_buf;
 }
 
-void update_help_strings() {
-  static char lines[5][128];
-  static char glines[5][128];
-  control_handler *tbl = emacs_keys_mode ? emacs_control_table : base_control_table;
-
-#ifdef HAS_MENU
-  snprintf(lines[0], 128, "Esc menu  %s  %s  %s  %s",
-#else
-  snprintf(lines[0], 128, "%s  %s  %s  %s  %s",
-#endif
-           format_shortcut("prev_page", tbl), format_shortcut("del_char", tbl),
-           format_shortcut("eol", tbl), format_shortcut("adv_word", tbl));
-  control_keys[0] = lines[0];
-
-  snprintf(lines[1], 128, "%s  %s  %s  %s  %s",
-           format_shortcut("command_prompt", tbl), format_shortcut("del_line", tbl),
-           format_shortcut("mark", tbl), format_shortcut("replace_prompt", tbl),
-           format_shortcut("top_of_txt", tbl));
-  control_keys[1] = lines[1];
-
-  snprintf(lines[2], 128, "%s  %s  %s  %s  %s",
-           format_shortcut("search", tbl), format_shortcut("cut", tbl),
-           format_shortcut("gold_toggle", tbl), format_shortcut("bottom_of_txt", tbl),
-           format_shortcut("del_word", tbl));
-  control_keys[2] = lines[2];
-
-  snprintf(lines[3], 128, "%s  %s  %s  %s  %s",
-           format_shortcut("copy", tbl), format_shortcut("adv_char", tbl),
-           format_shortcut("next_page", tbl), format_shortcut("bol", tbl),
-           format_shortcut("paste", tbl));
-  control_keys[3] = lines[3];
-
-  control_keys[4] = nullptr;
-
-  // GOLD help strings
-#ifdef HAS_MENU
-  snprintf(glines[0], 128, "Esc menu  %s  %s  %s  %s",
-#else
-  snprintf(glines[0], 128, "Esc exit  %s  %s  %s  %s",
-#endif
-           format_shortcut("und_char", gold_control_table),
-           format_shortcut("und_word", gold_control_table),
-           format_shortcut("und_line", gold_control_table),
-           format_shortcut("search_reverse", gold_control_table));
-  gold_control_keys[0] = glines[0];
-
-  snprintf(glines[1], 128, "%s  %s  %s  %s",
-           format_shortcut("format", gold_control_table),
-           format_shortcut("search_prompt", gold_control_table),
-           format_shortcut("replace_prompt", gold_control_table),
-           format_shortcut("append", gold_control_table));
-  gold_control_keys[1] = glines[1];
-  gold_control_keys[2] = nullptr;
-  gold_control_keys[3] = nullptr;
-  gold_control_keys[4] = nullptr;
-}
-
 void strings_init() {
   int counter;
 
@@ -6654,7 +6592,6 @@ void strings_init() {
   init_strings[23] = EBIND;
   init_strings[24] = nullptr;
   
-  update_help_strings();
 
   /*
    |	allocate space for strings here for settings menu
