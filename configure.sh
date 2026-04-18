@@ -3,6 +3,7 @@
 echo "Probing dependencies..."
 
 # Default settings
+PREFIX=${PREFIX:-/usr/local}
 ENABLE_LSP=${ENABLE_LSP:-1}
 ENABLE_TREESITTER=${ENABLE_TREESITTER:-1}
 ENABLE_ICU=${ENABLE_ICU:-1}
@@ -15,6 +16,7 @@ ENABLE_INFO_WIN=${ENABLE_INFO_WIN:-1}
 ENABLE_LIBEDIT=${ENABLE_LIBEDIT:-1}
 
 CFLAGS="-std=c23 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600"
+CFLAGS="$CFLAGS -DRESDIR_PATH=\\\"$PREFIX/share/ee/\\\""
 LIBS=""
 
 # Probe ncursesw/ncurses/curses
@@ -105,6 +107,7 @@ fi
 # Generate config.mk
 echo "Generating config.mk..."
 cat << EOF > config.mk
+PREFIX = $PREFIX
 CFLAGS = $CFLAGS
 LDFLAGS = $LIBS
 SCDOC = $SCDOC
