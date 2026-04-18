@@ -107,65 +107,86 @@ void no_op(void);
 
 #define ee_wmove(w, y, x) \
   do { \
-    if (!profiling_mode) { \
+    if (!profiling_mode && (w) != nullptr) { \
       wmove(w, y, x); \
     } \
   } while (0)
 
 #define ee_wclrtoeol(w) \
   do { \
-    if (!profiling_mode) { \
+    if (!profiling_mode && (w) != nullptr) { \
       wclrtoeol(w); \
     } \
   } while (0)
 
 #define ee_wrefresh(w) \
   do { \
-    if (!profiling_mode) { \
+    if (!profiling_mode && (w) != nullptr) { \
       wrefresh(w); \
     } \
   } while (0)
 
 #define ee_werase(w) \
   do { \
-    if (!profiling_mode) { \
+    if (!profiling_mode && (w) != nullptr) { \
       werase(w); \
     } \
   } while (0)
 
 #define ee_waddstr(w, s) \
   do { \
-    if (!profiling_mode) { \
+    if (!profiling_mode && (w) != nullptr) { \
       waddstr(w, s); \
     } \
   } while (0)
 
 #define ee_waddch(w, c) \
   do { \
-    if (!profiling_mode) { \
+    if (!profiling_mode && (w) != nullptr) { \
       waddch(w, c); \
     } \
   } while (0)
 
 #define ee_idlok(w, b) \
   do { \
-    if (!profiling_mode) { \
+    if (!profiling_mode && (w) != nullptr) { \
       idlok(w, b); \
     } \
   } while (0)
 
 #define ee_keypad(w, b) \
   do { \
-    if (!profiling_mode) { \
+    if (!profiling_mode && (w) != nullptr) { \
       keypad(w, b); \
     } \
   } while (0)
 
-#define ee_wprintw(w, ...) \
-  do { \
-    if (!profiling_mode) { \
-      wprintw(w, __VA_ARGS__); \
-    } \
+#define ee_wprintw(w, ...)                                                     \
+  do {                                                                         \
+    if (!profiling_mode && (w) != nullptr) {                                   \
+      wprintw(w, __VA_ARGS__);                                                 \
+    }                                                                          \
+  } while (0)
+
+#define ee_wdeleteln(w)                                                        \
+  do {                                                                         \
+    if (!profiling_mode && (w) != nullptr) {                                   \
+      wdeleteln(w);                                                            \
+    }                                                                          \
+  } while (0)
+
+#define ee_winsertln(w)                                                        \
+  do {                                                                         \
+    if (!profiling_mode && (w) != nullptr) {                                   \
+      winsertln(w);                                                            \
+    }                                                                          \
+  } while (0)
+
+#define ee_wclrtobot(w)                                                        \
+  do {                                                                         \
+    if (!profiling_mode && (w) != nullptr) {                                   \
+      wclrtobot(w);                                                            \
+    }                                                                          \
   } while (0)
 
 extern control_handler base_control_table[1024];
@@ -200,9 +221,6 @@ extern TSTree *ts_tree;
 extern EditLine *el;
 extern History *hist;
 #endif
-
-extern bool vi_keys_mode;
-extern bool vi_insert_mode;
 
 extern char *help_text[];
 extern char *control_keys[5];
@@ -344,6 +362,8 @@ extern char *EIGHTBIT;
 extern char *NOEIGHTBIT;
 extern char *EMACS_string;
 extern char *NOEMACS_string;
+extern char *VI_string;
+extern char *NOVI_string;
 extern char *BIND;
 extern char *GBIND;
 extern char *EBIND;
@@ -452,9 +472,11 @@ void vi_command(int c);
 void function_key(void);
 void goto_line(char *cmd_str);
 int search_reverse(int display_message);
+int scanline_step(unsigned char *ptr, const unsigned char *pos, int temp);
 
 #ifdef HAS_ICU
 extern UResourceBundle *icu_bundle;
+static int u_char_width(UChar32 c, int column);
 #endif
 
 #ifdef HAS_LSP

@@ -733,17 +733,20 @@ char *chinese_cmd;
 char *nochinese_cmd;
 
 /* Control handler wrappers for jump tables */
-static void control_right(void) { right(1); }
-void control_copy(void) { copy_region(false); }
-void control_search(void) { search(1); }
-void control_backspace(void) { delete_char_at_cursor(1); }
-void control_newline(void) { insert_line(1); }
-void control_next_page(void) { move_rel('d', max(5, (last_line - 5))); }
-void control_prev_page(void) { move_rel('u', max(5, (last_line - 5))); }
-void control_cut(void) { copy_region(true); }
-static void control_left(void) { left(1); }
-void control_down(void) { down(); }
+void control_right(void) { right(1); }
+void control_left(void) { left(1); }
 void control_up(void) { up(); }
+void control_down(void) { down(); }
+static void control_bol(void) { bol(); }
+static void control_eol(void) { eol(); }
+void control_next_page(void) { nextline(); }
+void control_prev_page(void) { prevline(); }
+static void control_top(void) { top(); }
+static void control_bottom(void) { bottom(); }
+static void control_del_char(void) { delete_char_at_cursor(1); }
+static void control_del_word(void) { del_word(); }
+static void control_del_line(void) { del_line(); }
+static void control_und_char(void) { undel_char(); }
 void control_insert_ascii(void) {
   char *string = get_string(ascii_code_str, 1);
   if (*string != '\0') {
@@ -753,54 +756,78 @@ void control_insert_ascii(void) {
   }
   free(string);
 }
-void gold_search_reverse(void) { search_reverse(1); }
+static void control_und_word(void) { undel_word(); }
+static void control_und_line(void) { undel_line(); }
+void control_copy(void) { copy_region(false); }
+void control_cut(void) { copy_region(true); }
+static void control_paste(void) { paste_region(); }
 void gold_append(void) { append_region(false); }
-
-static void control_esc(void);
-static void control_gold_esc(void);
+static void control_mark(void) { set_mark(); }
+void control_search(void) { search(1); }
+void gold_search_reverse(void) { search_reverse(1); }
+static void control_search_prompt(void) { search_prompt(); }
+static void control_replace_prompt(void) { replace_prompt(); }
+static void control_command_prompt(void) { command_prompt(); }
 void gold_toggle(void);
+static void control_gold_toggle(void) { gold_toggle(); }
+static void control_redraw(void) { redraw(); }
+static void control_help(void) {
+#ifdef HAS_HELP
+  help();
+#endif
+}
+static void control_esc(void) {
+#ifdef HAS_MENU
+  menu_op(main_menu);
+#endif
+}
+static void control_format(void) {
+#ifdef HAS_AUTOFORMAT
+  Format();
+#endif
+}
+static void control_adv_word(void) { adv_word(); }
+static void control_prev_word(void) { prev_word(); }
+void control_newline(void) { insert_line(1); }
+void control_backspace(void) { delete_char_at_cursor(1); }
 
 struct command_map commands_table[] = {
-    {"right", (void (*)(void))right, "move right one character", "right"},
-    {"left", (void (*)(void))left, "move left one character", "left"},
-    {"up", (void (*)(void))up, "move up one line", "up"},
-    {"down", (void (*)(void))down, "move down one line", "down"},
-    {"bol", bol, "move to beginning of line", "beg of lin"},
-    {"eol", eol, "move to end of line", "end of lin"},
-    {"next_page", (void (*)(void))nextline, "move to next page", "next page"},
-    {"prev_page", (void (*)(void))prevline, "move to previous page", "prev page"},
-    {"top_of_txt", top, "move to top of text", "top of txt"},
-    {"bottom_of_txt", bottom, "move to bottom of text", "end of txt"},
-    {"del_char", (void (*)(void))delete_char_at_cursor, "delete character at cursor", "del char"},
-    {"del_word", del_word, "delete word at cursor", "del word"},
-    {"del_line", (void (*)(void))del_line, "delete current line", "del line"},
-    {"und_char", undel_char, "undelete last character", "und char"},
-    {"und_word", undel_word, "undelete last word", "und word"},
-    {"und_line", undel_line, "undelete last line", "und line"},
-    {"copy", (void (*)(void))control_copy, "copy region to clipboard", "copy"},
-    {"cut", (void (*)(void))control_cut, "cut region to clipboard", "cut"},
-    {"paste", paste_region, "paste clipboard at cursor", "paste"},
+    {"right", control_right, "move right one character", "right"},
+    {"left", control_left, "move left one character", "left"},
+    {"up", control_up, "move up one line", "up"},
+    {"down", control_down, "move down one line", "down"},
+    {"bol", control_bol, "move to beginning of line", "beg of lin"},
+    {"eol", control_eol, "move to end of line", "end of lin"},
+    {"next_page", control_next_page, "move to next page", "next page"},
+    {"prev_page", control_prev_page, "move to previous page", "prev page"},
+    {"top_of_txt", control_top, "move to top of text", "top of txt"},
+    {"bottom_of_txt", control_bottom, "move to bottom of text", "end of txt"},
+    {"del_char", control_del_char, "delete character at cursor", "del char"},
+    {"del_word", control_del_word, "delete word at cursor", "del word"},
+    {"del_line", control_del_line, "delete current line", "del line"},
+    {"und_char", control_und_char, "undelete last character", "und char"},
+    {"und_word", control_und_word, "undelete last word", "und word"},
+    {"und_line", control_und_line, "undelete last line", "und line"},
+    {"copy", control_copy, "copy region to clipboard", "copy"},
+    {"cut", control_cut, "cut region to clipboard", "cut"},
+    {"paste", control_paste, "paste clipboard at cursor", "paste"},
     {"append", gold_append, "append region to clipboard", "append"},
-    {"mark", set_mark, "set mark for region", "mark"},
-    {"search", (void (*)(void))control_search, "search for string", "search"},
+    {"mark", control_mark, "set mark for region", "mark"},
+    {"search", control_search, "search for string", "search"},
     {"search_reverse", gold_search_reverse, "search reverse", "reverse"},
-    {"search_prompt", search_prompt, "prompt for search string", "srch prmpt"},
-    {"replace_prompt", replace_prompt, "prompt for replace string",
+    {"search_prompt", control_search_prompt, "prompt for search string", "srch prmpt"},
+    {"replace_prompt", control_replace_prompt, "prompt for replace string",
      "repl prmpt"},
-    {"command_prompt", command_prompt, "enter command mode", "command"},
-    {"gold_toggle", (void (*)(void))gold_toggle, "toggle GOLD mode", "GOLD"},
-    {"redraw", redraw, "redraw the screen", "redraw"},
-#ifdef HAS_HELP
-    {"help", help, "display help information", "help"},
-#endif
-    {"menu", (void (*)(void))control_esc, "open main menu", "menu"},
-#ifdef HAS_AUTOFORMAT
-    {"format", Format, "format paragraph", "fmt parag"},
-#endif
-    {"adv_word", adv_word, "advance to next word", "adv word"},
-    {"prev_word", prev_word, "move to previous word", "prev word"},
-    {"newline", (void (*)(void))control_newline, "insert newline", "newline"},
-    {"backspace", (void (*)(void))control_backspace, "delete previous character", "backspace"},
+    {"command_prompt", control_command_prompt, "enter command mode", "command"},
+    {"gold_toggle", control_gold_toggle, "toggle GOLD mode", "GOLD"},
+    {"redraw", control_redraw, "redraw the screen", "redraw"},
+    {"help", control_help, "display help information", "help"},
+    {"menu", control_esc, "open main menu", "menu"},
+    {"format", control_format, "format paragraph", "fmt parag"},
+    {"adv_word", control_adv_word, "advance to next word", "adv word"},
+    {"prev_word", control_prev_word, "move to previous word", "prev word"},
+    {"newline", control_newline, "insert newline", "newline"},
+    {"backspace", control_backspace, "delete previous character", "backspace"},
     {nullptr, nullptr, nullptr, nullptr}};
 
 void bind_key(const char *key_str, const char *cmd_name, int table_type) {
@@ -865,11 +892,6 @@ void bind_key(const char *key_str, const char *cmd_name, int table_type) {
   target_table[key_idx] = handler;
 }
 
-static void control_esc(void) {
-#ifdef HAS_MENU
-  menu_op(main_menu);
-#endif
-}
 
 static void control_gold_esc(void) {
 #ifdef HAS_MENU
@@ -1402,7 +1424,7 @@ void delete_char_at_cursor(int disp) {
     scr_pos = scr_horz;
     if (scr_vert < last_line) {
       ee_wmove(text_win, scr_vert + 1, 0);
-      wdeleteln(text_win);
+      ee_wdeleteln(text_win);
     }
     int lines_to_find = last_line - temp_vert;
     temp_buff = find_next_recursive(temp_buff, lines_to_find, &temp_vert);
@@ -1410,7 +1432,7 @@ void delete_char_at_cursor(int disp) {
     if ((temp_vert == last_line) && (temp_buff != nullptr)) {
       tp = temp_buff->line;
       ee_wmove(text_win, last_line, 0);
-      wclrtobot(text_win);
+      ee_wclrtobot(text_win);
       draw_line(last_line, 0, temp_buff, 1);
       ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
     }
@@ -1434,7 +1456,7 @@ static int u_char_width(UChar32 c, int column) {
   return 1;
 }
 
-static int scanline_step(unsigned char *ptr, const unsigned char *pos,
+int scanline_step(unsigned char *ptr, const unsigned char *pos,
                          int temp) {
   int current_temp = temp;
   unsigned char *current_ptr = (unsigned char *)ptr;
@@ -1694,7 +1716,7 @@ void draw_line(int vertical, int horiz, struct text *line, int t_pos) {
     }
 #endif
 
-    wattron(text_win, attr);
+    if (text_win != nullptr) wattron(text_win, attr);
 #ifdef HAS_ICU
     if (ee_chinese) {
       int32_t i = 0;
@@ -1749,7 +1771,7 @@ void draw_line(int vertical, int horiz, struct text *line, int t_pos) {
     posit++;
     temp++;
 #endif
-    wattroff(text_win, attr);
+    if (text_win != nullptr) wattroff(text_win, attr);
   }
   if (column < last_col) {
     ee_wclrtoeol(text_win);
@@ -1804,12 +1826,12 @@ void insert_line(int disp) {
       scr_vert++;
       ee_wclrtoeol(text_win);
       ee_wmove(text_win, scr_vert, 0);
-      winsertln(text_win);
+      ee_winsertln(text_win);
     } else {
       ee_wmove(text_win, 0, 0);
-      wdeleteln(text_win);
+      ee_wdeleteln(text_win);
       ee_wmove(text_win, last_line, 0);
-      wclrtobot(text_win);
+      ee_wclrtobot(text_win);
     }
     scr_pos = scr_horz = 0;
     if (horiz_offset != 0) {
@@ -1986,9 +2008,9 @@ void nextline() {
   position = 1;
   if (scr_vert == last_line) {
     ee_wmove(text_win, 0, 0);
-    wdeleteln(text_win);
+    ee_wdeleteln(text_win);
     ee_wmove(text_win, last_line, 0);
-    wclrtobot(text_win);
+    ee_wclrtobot(text_win);
     draw_line(last_line, 0, curr_line, 1);
   } else {
     {
@@ -2002,7 +2024,7 @@ void prevline() {
   curr_line = curr_line->prev_line;
   absolute_lin--;
   if (scr_vert == 0) {
-    winsertln(text_win);
+    ee_winsertln(text_win);
     draw_line(0, 0, curr_line, 1);
   } else {
     scr_vert--;
@@ -3038,7 +3060,7 @@ void draw_screen() /* redraw the screen from current postion       */
   struct text *line = curr_line;
   int vertical = scr_vert;
 
-  wclrtobot(text_win);
+  ee_wclrtobot(text_win);
   while (line != nullptr && vertical <= last_line) {
     draw_line(vertical, 0, line, 1);
     line = line->next_line;
@@ -4597,32 +4619,36 @@ void paint_menu(struct menu_entries menu_list[], int max_width,
 }
 #endif
 #ifdef HAS_HELP
+#ifdef HAS_HELP
 void help() {
   int counter;
+  WINDOW *h_win;
 
-  ee_werase(help_win);
-  if(!profiling_mode) clearok(help_win, true);
+  if (profiling_mode)
+    return;
+
+  h_win = newwin(LINES, COLS, 0, 0);
+  if (h_win == nullptr)
+    return;
+
+  werase(h_win);
+  clearok(h_win, true);
   for (counter = 0; counter < 22; counter++) {
-    ee_wmove(help_win, counter, 0);
-    ee_waddstr(help_win,
-            (emacs_keys_mode) ? emacs_help_text[counter] : help_text[counter]);
+    wmove(h_win, counter, 0);
+    char *str = (emacs_keys_mode) ? emacs_help_text[counter] : help_text[counter];
+    if (str != nullptr) {
+      waddstr(h_win, str);
+    }
   }
-  ee_wrefresh(help_win);
-  ee_werase(com_win);
-  ee_wmove(com_win, 0, 0);
-  ee_wprintw(com_win, "%s", press_any_key_msg);
-  ee_wrefresh(com_win);
-  counter = wgetch(com_win);
-  if (counter == -1) {
-    edit_abort(0);
-  }
-  ee_werase(com_win);
-  ee_wmove(com_win, 0, 0);
-  ee_werase(help_win);
-  ee_wrefresh(help_win);
-  ee_wrefresh(com_win);
+
+  wmove(h_win, min(23, LINES - 1), 0);
+  waddstr(h_win, press_any_key_msg);
+  wrefresh(h_win);
+  wgetch(h_win);
+  delwin(h_win);
   redraw();
 }
+#endif
 #endif
 
 int get_info_win_height() {
