@@ -430,7 +430,6 @@ void help_op(void);
 void menu_op_call(void);
 void modes_op(void);
 void resize_info_win(void);
-void update_help_strings(void);
 void command(char *cmd_str);
 char *get_string(char *prompt, int advance);
 void edit_abort(int arg);
