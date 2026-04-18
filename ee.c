@@ -105,8 +105,10 @@ void gold_append(void);
 void gold_search_reverse(void);
 void resize_info_win(void);
 void update_help_strings(void);
+#ifdef HAS_ICU
+static int u_char_width(UChar32 c, int column);
+#endif
 void insert(int character);
-
 char *ee_copyright_message = "Copyright (c) 1986, 1990, 1991, 1992, 1993, "
                              "1994, 1995, 1996, 2009 Hugh Mahon ";
 
@@ -948,7 +950,7 @@ int main(int argc, char *argv[]) {
   signal(SIGSEGV, SIG_DFL);
   signal(SIGINT, edit_abort);
   d_char =
-      (unsigned char *)malloc(3); /* provide a buffer for multi-byte chars */
+      (unsigned char *)malloc(8); /* provide a buffer for multi-byte chars */
   d_word = (unsigned char *)malloc(MAX_WORD_LEN);
   *d_word = '\0';
   d_line = nullptr;
@@ -1190,8 +1192,6 @@ static unsigned char *resiz_line(int factor, struct text *rline, int rpos) {
 void insert(int character) {
   int counter;
   int value;
-  unsigned char *temp;  /* temporary pointer			*/
-  unsigned char *temp2; /* temporary pointer			*/
 
   if ((character == '\011') && expand_tabs) {
     counter = len_char('\011', scr_horz);
@@ -1220,27 +1220,60 @@ void insert(int character) {
   int utf8_len = 1;
 #endif
 
-  for (int i = 0; i < utf8_len; i++) {
-    int c = utf8_buf[i];
-    text_changes = true;
-    if ((curr_line->max_length - curr_line->line_length) < 5) {
-      point = resiz_line(10, curr_line, position);
-    }
-    curr_line->line_length++;
-    size_t move_len = curr_line->line_length - position;
-    /* memmove safely handles overlapping memory regions */
-    memmove(point + 1, point, move_len);
-    *point = c; /* insert new character			*/
-    if (isprint((unsigned char)c) == 0) /* check for TAB character*/
-    {
-      scr_pos = scr_horz += out_char(text_win, c, scr_horz);
-    } else {
-      ee_waddch(text_win, (unsigned char)c);
-      scr_pos = ++scr_horz;
-    }
-    point++;
-    position++;
+  // Make sure we have enough space for the full sequence
+  if ((curr_line->max_length - curr_line->line_length) < (utf8_len + 1)) {
+    point = resiz_line(10 + utf8_len, curr_line, position);
   }
+
+  text_changes = true;
+  size_t move_len = curr_line->line_length - position;
+  /* memmove safely handles overlapping memory regions */
+  memmove(point + utf8_len, point, move_len);
+
+  for (int i = 0; i < utf8_len; i++) {
+    point[i] = utf8_buf[i];
+  }
+  curr_line->line_length += utf8_len;
+
+  // Update screen once for the whole character
+#ifdef HAS_ICU
+  if (ee_chinese) {
+    if (character == '\t' || character < 32 || character == 127) {
+      int w = u_char_width(character, scr_horz);
+      out_char(text_win, character, scr_horz);
+      scr_horz += w;
+    } else {
+      // Direct output for printable multi-byte
+      for (int i = 0; i < utf8_len; i++) {
+        ee_waddch(text_win, utf8_buf[i]);
+      }
+      scr_horz += u_char_width(character, scr_horz);
+    }
+  } else {
+    // Treat as individual bytes
+    for (int i = 0; i < utf8_len; i++) {
+      int c = utf8_buf[i];
+      if (isprint(c) == 0) {
+        scr_horz += out_char(text_win, c, scr_horz);
+      } else {
+        ee_waddch(text_win, (unsigned char)c);
+        scr_horz++;
+      }
+    }
+  }
+#else
+  int c = (unsigned char)character;
+  if (isprint(c) == 0) {
+    scr_horz += out_char(text_win, c, scr_horz);
+  } else {
+    ee_waddch(text_win, (unsigned char)c);
+    scr_horz++;
+  }
+#endif
+
+  scr_pos = scr_horz;
+  point += utf8_len;
+  position += utf8_len;
 
   ee_wclrtoeol(text_win);
 
@@ -1384,13 +1417,13 @@ void delete_char_at_cursor(int disp) {
 static int u_char_width(UChar32 c, int column) {
   if (c == '\t')
     return tabshift(column);
-  if (c < 32)
-    return 2; // Control chars like ^A
-  if (c == 127)
-    return 2; // ^?
-  // Basic check for wide characters (e.g. Emoji, CJK)
-  // In a full implementation, we'd use u_getIntPropertyValue(c, UCHAR_EAST_ASIAN_WIDTH)
-  // or similar to return 2 for Wide/Fullwidth.
+  if (c < 32 || c == 127)
+    return 2;
+
+  int eaw = u_getIntPropertyValue(c, UCHAR_EAST_ASIAN_WIDTH);
+  if (eaw == U_EA_FULLWIDTH || eaw == U_EA_WIDE) {
+    return 2;
+  }
   return 1;
 }
 
@@ -1831,6 +1864,7 @@ void prev_word() {
     position -= (point - new_p);
     point = new_p;
     scanline(point);
+    scr_pos = scr_horz;
     ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
   } else {
     left(1);
