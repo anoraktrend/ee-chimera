@@ -451,6 +451,7 @@ int pipe_in[2];           /* pipe file descriptors for input	*/
 bool out_pipe;            /* flag that info is piped out		*/
 bool in_pipe;             /* flag that info is piped in		*/
 bool formatted = false;
+bool formatting_in_progress = false;
 bool profiling_mode = false;   /* flag indicating paragraph formatted	*/
 #ifdef HAS_AUTOFORMAT
 bool auto_format = false; /* flag for auto_format mode		*/
@@ -1199,8 +1200,10 @@ void insert(int character) {
       insert(' ');
     }
 #ifdef HAS_AUTOFORMAT
-    if (auto_format) {
+    if (auto_format && !formatting_in_progress) {
+      formatting_in_progress = true;
       Auto_Format();
+      formatting_in_progress = false;
     }
 #endif
     return;
@@ -1301,8 +1304,10 @@ void insert(int character) {
   }
 
 #ifdef HAS_AUTOFORMAT
-  if (auto_format && (character == ' ') && (!formatted)) {
+  if (auto_format && (character == ' ') && (!formatted) && !formatting_in_progress) {
+    formatting_in_progress = true;
     Auto_Format();
+    formatting_in_progress = false;
   } else 
 #endif
   if ((character != ' ') && (character != '\t')) {
@@ -1458,15 +1463,18 @@ void scanline(const unsigned char *pos) {
   int beyond_last = (scr_horz - horiz_offset) > last_col;
   int below_offset = scr_horz < horiz_offset;
 
-  int new_off_high = (scr_horz - (scr_horz % 8)) - (COLS - 8);
-  int new_off_low = scr_horz - (scr_horz % 8);
-  new_off_low *= (new_off_low > 0);
+  if (beyond_last || below_offset) {
+    int new_off_high = (scr_horz - (scr_horz % 8)) - (COLS - 8);
+    int new_off_low = scr_horz - (scr_horz % 8);
+    if (new_off_low < 0)
+      new_off_low = 0;
 
-  horiz_offset = (beyond_last * new_off_high) + (below_offset * new_off_low) +
-                 (!(beyond_last | below_offset) * horiz_offset);
+    horiz_offset = (beyond_last ? new_off_high : new_off_low);
 
-  if (beyond_last | below_offset) {
-    midscreen(scr_vert, (unsigned char *)pos);
+    // Call draw_screen instead of midscreen to avoid recursion,
+    // as midscreen calls scanline.
+    ee_wmove(text_win, 0, 0);
+    draw_screen();
   }
 }
 
@@ -2714,7 +2722,7 @@ void midscreen(int line, unsigned char *pnt) {
   draw_screen();
   scr_vert = i;
   curr_line = mid_line;
-  scanline(pnt);
+  scr_horz = scanline_step(curr_line->line, pnt, 0);
   ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
 }
 
