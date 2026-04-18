@@ -1318,10 +1318,11 @@ void insert(int character) {
 }
 
 void update_line_numbers(struct text *line, int delta) {
-  if (line == nullptr)
-    return;
-  line->line_number += delta;
-  update_line_numbers(line->next_line, delta);
+  struct text *curr = line;
+  while (curr != nullptr) {
+    curr->line_number += delta;
+    curr = curr->next_line;
+  }
 }
 
 /* delete character		*/
@@ -1429,32 +1430,38 @@ static int u_char_width(UChar32 c, int column) {
   if (eaw == U_EA_FULLWIDTH || eaw == U_EA_WIDE) {
     return 2;
   }
+#endif
   return 1;
 }
 
 static int scanline_step(unsigned char *ptr, const unsigned char *pos,
                          int temp) {
-  if (ptr >= pos)
-    return temp;
-  if (ee_chinese) {
-    int32_t i = 0;
-    UChar32 c;
-    U8_NEXT(ptr, i, (int32_t)(pos - ptr), c);
-    if (c < 0) { // Invalid UTF-8
-      return scanline_step(ptr + 1, pos, temp + 1);
+  int current_temp = temp;
+  unsigned char *current_ptr = (unsigned char *)ptr;
+  while (current_ptr < pos) {
+#ifdef HAS_ICU
+    if (ee_chinese) {
+      int32_t i = 0;
+      UChar32 c;
+      U8_NEXT(current_ptr, i, (int32_t)(pos - current_ptr), c);
+      if (c < 0) { // Invalid UTF-8
+        current_temp += 1;
+        current_ptr += 1;
+      } else {
+        current_temp += u_char_width(c, current_temp);
+        current_ptr += i;
+      }
+    } else {
+      current_temp += len_char(*current_ptr, current_temp);
+      current_ptr += 1;
     }
-    return scanline_step(ptr + i, pos, temp + u_char_width(c, temp));
-  } else {
-    return scanline_step(ptr + 1, pos, temp + len_char(*ptr, temp));
-  }
-}
 #else
-static int scanline_step(unsigned char *ptr, const unsigned char *pos, int temp) {
-  if (ptr >= pos)
-    return temp;
-  return scanline_step(ptr + 1, pos, temp + len_char(*ptr, temp));
-}
+    current_temp += len_char(*current_ptr, current_temp);
+    current_ptr += 1;
 #endif
+  }
+  return current_temp;
+}
 
 /* find the proper horizontal position for the pointer */
 void scanline(const unsigned char *pos) {
@@ -1843,15 +1850,19 @@ void *next_word(void *s) {
 /* move to start of previous word in text	*/
 static unsigned char *skip_spaces_back(unsigned char *start,
                                        unsigned char *ptr) {
-  if (ptr <= start || (*(ptr - 1) != ' ' && *(ptr - 1) != '\t'))
-    return ptr;
-  return skip_spaces_back(start, ptr - 1);
+  unsigned char *current = ptr;
+  while (current > start && (*(current - 1) == ' ' || *(current - 1) == '\t')) {
+    current--;
+  }
+  return current;
 }
 
 static unsigned char *skip_word_back(unsigned char *start, unsigned char *ptr) {
-  if (ptr <= start || (*(ptr - 1) == ' ' || *(ptr - 1) == '\t'))
-    return ptr;
-  return skip_word_back(start, ptr - 1);
+  unsigned char *current = ptr;
+  while (current > start && (*(current - 1) != ' ' && *(current - 1) != '\t')) {
+    current--;
+  }
+  return current;
 }
 
 void prev_word() {
@@ -2693,19 +2704,29 @@ void goto_line(char *cmd_str) {
 }
 
 struct text *find_next_recursive(struct text *line, int count,
-                                        int *actual_count) {
-  if (count <= 0 || line == nullptr)
-    return line;
-  (*actual_count)++;
-  return find_next_recursive(line->next_line, count - 1, actual_count);
+                                 int *actual_count) {
+  struct text *curr = line;
+  int i = 0;
+  while (curr != nullptr && curr->next_line != nullptr && i < count) {
+    curr = curr->next_line;
+    i++;
+  }
+  if (actual_count != nullptr)
+    *actual_count += i;
+  return curr;
 }
 
 struct text *find_prev_recursive(struct text *line, int count,
-                                        int *actual_count) {
-  if (count <= 0 || line->prev_line == nullptr)
-    return line;
-  (*actual_count)++;
-  return find_prev_recursive(line->prev_line, count - 1, actual_count);
+                                 int *actual_count) {
+  struct text *curr = line;
+  int i = 0;
+  while (curr != nullptr && curr->prev_line != nullptr && i < count) {
+    curr = curr->prev_line;
+    i++;
+  }
+  if (actual_count != nullptr)
+    *actual_count += i;
+  return curr;
 }
 
 /* put current line in middle of screen	*/
@@ -3012,17 +3033,17 @@ void get_line(int length, unsigned char *in_string, int *append) {
   }
 }
 
-static void draw_screen_step(struct text *line, int vertical) {
-  if (line == nullptr || vertical > last_line)
-    return;
-  draw_line(vertical, 0, line, 1);
-  draw_screen_step(line->next_line, vertical + 1);
-}
-
-void draw_screen() /* redraw the screen from current postion	*/
+void draw_screen() /* redraw the screen from current postion       */
 {
+  struct text *line = curr_line;
+  int vertical = scr_vert;
+
   wclrtobot(text_win);
-  draw_screen_step(curr_line, scr_vert);
+  while (line != nullptr && vertical <= last_line) {
+    draw_line(vertical, 0, line, 1);
+    line = line->next_line;
+    vertical++;
+  }
   ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
 }
 
@@ -3140,11 +3161,15 @@ void edit_abort(int arg) {
 }
 
 static void free_text_lines(struct text *line) {
-  if (line == nullptr)
-    return;
-  free_text_lines(line->next_line);
-  free(line->line);
-  free(line);
+  struct text *curr = line;
+  struct text *next;
+  while (curr != nullptr) {
+    next = curr->next_line;
+    if (curr->line != nullptr)
+      free(curr->line);
+    free(curr);
+    curr = next;
+  }
 }
 
 void delete_text() {
