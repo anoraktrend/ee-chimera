@@ -1300,10 +1300,12 @@ void delete_char_at_cursor(int disp) {
     text_changes = true;
     temp2 = tp = point;
 #ifdef HAS_ICU
-    int32_t i = (int32_t)(point - curr_line->line);
-    U8_BACK_1(curr_line->line, 0, i);
-    unsigned char *new_p = curr_line->line + i;
-    del_width = (int)(point - new_p);
+    if (ee_chinese) {
+      int32_t i = (int32_t)(point - curr_line->line);
+      U8_BACK_1(curr_line->line, 0, i);
+      unsigned char *new_p = curr_line->line + i;
+      del_width = (int)(point - new_p);
+    }
 #else
     if (ee_chinese && (position >= 2) && (*(point - 2) > 127)) {
       del_width = 2;
@@ -1396,13 +1398,17 @@ static int scanline_step(unsigned char *ptr, const unsigned char *pos,
                          int temp) {
   if (ptr >= pos)
     return temp;
-  int32_t i = 0;
-  UChar32 c;
-  U8_NEXT(ptr, i, (int32_t)(pos - ptr), c);
-  if (c < 0) { // Invalid UTF-8
-    return scanline_step(ptr + 1, pos, temp + 1);
+  if (ee_chinese) {
+    int32_t i = 0;
+    UChar32 c;
+    U8_NEXT(ptr, i, (int32_t)(pos - ptr), c);
+    if (c < 0) { // Invalid UTF-8
+      return scanline_step(ptr + 1, pos, temp + 1);
+    }
+    return scanline_step(ptr + i, pos, temp + u_char_width(c, temp));
+  } else {
+    return scanline_step(ptr + 1, pos, temp + len_char(*ptr, temp));
   }
-  return scanline_step(ptr + i, pos, temp + u_char_width(c, temp));
 }
 #else
 static int scanline_step(unsigned char *ptr, const unsigned char *pos, int temp) {
@@ -1455,15 +1461,6 @@ int out_char(WINDOW *window, int character, int column) {
   } else if (character == 127) {
     string = "^?";
   } else if (character > 127) {
-#ifdef HAS_ICU
-    if (!eightbit) {
-      sprintf(string2, "<%d>", character);
-      string = string2;
-    } else {
-      sprintf(string2, "<%02X>", character & 0xFF);
-      string = string2;
-    }
-#else
     if (!eightbit) {
       sprintf(string2, "<%d>", (character < 0) ? (character + 256) : character);
       string = string2;
@@ -1471,7 +1468,6 @@ int out_char(WINDOW *window, int character, int column) {
       ee_waddch(window, (unsigned char)character);
       return 1;
     }
-#endif
   } else {
     ee_waddch(window, (unsigned char)character);
     return 1;
@@ -1652,33 +1648,46 @@ void draw_line(int vertical, int horiz, struct text *line, int t_pos) {
 
     wattron(text_win, attr);
 #ifdef HAS_ICU
-    int32_t i = 0;
-    UChar32 c;
-    U8_NEXT(temp, i, (int32_t)(line->line_length - posit + 1), c);
-    if (c < 0) {
-      // Invalid UTF-8, just print byte
-      abs_column++;
-      column++;
-      ee_waddch(text_win, *temp);
+    if (ee_chinese) {
+      int32_t i = 0;
+      UChar32 c;
+      U8_NEXT(temp, i, (int32_t)(line->line_length - posit + 1), c);
+      if (c < 0) {
+        // Invalid UTF-8, just print byte
+        abs_column++;
+        column++;
+        ee_waddch(text_win, *temp);
+        posit++;
+        temp++;
+      } else {
+        if (c == '\t' || c < 32 || c == 127) {
+          column += u_char_width(c, abs_column);
+          abs_column += out_char(text_win, (int)c, abs_column);
+        } else {
+          // Use addwstr or similar for better support, but waddch with UTF-8
+          // bytes also works in ncursesw if we add them correctly.
+          // For simplicity, we add bytes one by one but they form a sequence.
+          for (int j = 0; j < i; j++) {
+            ee_waddch(text_win, temp[j]);
+          }
+          int w = u_char_width(c, abs_column);
+          abs_column += w;
+          column += w;
+        }
+        posit += i;
+        temp += i;
+      }
+    } else {
+      if (isprint(*temp) == 0) {
+        column += len_char(*temp, abs_column);
+        abs_column += out_char(text_win, *temp, abs_column);
+      } else {
+        abs_column++;
+        column++;
+        ee_waddch(text_win, *temp);
+      }
       posit++;
       temp++;
-    } else {
-      if (c == '\t' || c < 32 || c == 127) {
-        column += u_char_width(c, abs_column);
-        abs_column += out_char(text_win, (int)c, abs_column);
-      } else {
-        // Use addwstr or similar for better support, but waddch with UTF-8
-        // bytes also works in ncursesw if we add them correctly.
-        // For simplicity, we add bytes one by one but they form a sequence.
-        for (int j = 0; j < i; j++) {
-          ee_waddch(text_win, temp[j]);
-        }
-        int w = u_char_width(c, abs_column);
-        abs_column += w;
-        column += w;
-      }
-      posit += i;
-      temp += i;
     }
 #else
     if (isprint(*temp) == 0) {
@@ -1954,11 +1963,16 @@ void left(int disp) {
   if (point != curr_line->line) /* if not at begin of line	*/
   {
 #ifdef HAS_ICU
-    int32_t i = (int32_t)(point - curr_line->line);
-    U8_BACK_1(curr_line->line, 0, i);
-    unsigned char *new_p = curr_line->line + i;
-    position -= (point - new_p);
-    point = new_p;
+    if (ee_chinese) {
+      int32_t i = (int32_t)(point - curr_line->line);
+      U8_BACK_1(curr_line->line, 0, i);
+      unsigned char *new_p = curr_line->line + i;
+      position -= (point - new_p);
+      point = new_p;
+    } else {
+      point--;
+      position--;
+    }
 #else
     if (ee_chinese && (position >= 2) && (*(point - 2) > 127)) {
       point--;
@@ -1990,11 +2004,16 @@ void left(int disp) {
 void right(int disp) {
   if (position < curr_line->line_length) {
 #ifdef HAS_ICU
-    int32_t i = 0;
-    UChar32 c;
-    U8_NEXT(point, i, curr_line->line_length - position + 1, c);
-    point += i;
-    position += i;
+    if (ee_chinese) {
+      int32_t i = 0;
+      UChar32 c;
+      U8_NEXT(point, i, curr_line->line_length - position + 1, c);
+      point += i;
+      position += i;
+    } else {
+      point++;
+      position++;
+    }
 #else
     if (ee_chinese && (*point > 127) &&
         ((curr_line->line_length - position) >= 2)) {
@@ -2033,11 +2052,16 @@ void find_pos() {
   while ((scr_horz < scr_pos) && (position < curr_line->line_length)) {
     scr_horz += len_char(*point, scr_horz);
 #ifdef HAS_ICU
-    int32_t i = 0;
-    UChar32 c;
-    U8_NEXT(point, i, curr_line->line_length - position + 1, c);
-    point += i;
-    position += i;
+    if (ee_chinese) {
+      int32_t i = 0;
+      UChar32 c;
+      U8_NEXT(point, i, curr_line->line_length - position + 1, c);
+      point += i;
+      position += i;
+    } else {
+      point++;
+      position++;
+    }
 #else
     if (ee_chinese && (*point > 127) &&
         ((curr_line->line_length - position) >= 2)) {
@@ -3634,6 +3658,18 @@ void del_char() {
   in = 8;                                /* backspace */
   if (position < curr_line->line_length) /* if not end of line	*/
   {
+#ifdef HAS_ICU
+    if (ee_chinese) {
+      int32_t i = 0;
+      UChar32 c;
+      U8_NEXT(point, i, curr_line->line_length - position + 1, c);
+      point += i;
+      position += i;
+    } else {
+      position++;
+      point++;
+    }
+#else
     if (ee_chinese && (*point > 127) &&
         ((curr_line->line_length - position) >= 2)) {
       point++;
@@ -3641,6 +3677,7 @@ void del_char() {
     }
     position++;
     point++;
+#endif
     scanline(point);
     delete_char_at_cursor(1);
   } else {
@@ -5214,6 +5251,7 @@ void ee_init() {
     } else if (strstr(string, "UTF-8") != nullptr ||
                strstr(string, "utf8") != nullptr) {
       eightbit = true;
+      ee_chinese = true;
     }
   }
 
