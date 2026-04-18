@@ -114,6 +114,7 @@ root {
     state_on { "ON" }
     state_off { "OFF" }
     cmd_help { "HELP" }
+    cmd_mark { "MARK" }
     cmd_write { "WRITE" }
     cmd_read { "READ" }
     cmd_line { "LINE" }

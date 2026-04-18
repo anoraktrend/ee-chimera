@@ -684,6 +684,7 @@ char *restricted_msg;
 char *STATE_ON;
 char *STATE_OFF;
 char *HELP;
+char *MARK_str;
 char *WRITE;
 char *READ;
 char *LINE;
@@ -2424,6 +2425,8 @@ void command(char *cmd_str1) {
     } else {
       ee_wprintw(com_win, current_file_str, in_file_name);
     }
+  } else if (compare(cmd_str, MARK_str, false)) {
+    set_mark();
   } else if ((*cmd_str >= '0') && (*cmd_str <= '9')) {
     {
       goto_line(cmd_str);
@@ -3408,13 +3411,22 @@ void search_prompt() {
 
 /* set a mark for copying or cutting text */
 void set_mark() {
-  mark_line = curr_line;
-  mark_position = position;
-  ee_wmove(com_win, 0, 0);
-  ee_wclrtoeol(com_win);
-  ee_wprintw(com_win, "Mark set.");
+  if (mark_line != nullptr) {
+    mark_line = nullptr;
+    mark_position = 0;
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, "Mark cleared.");
+  } else {
+    mark_line = curr_line;
+    mark_position = position;
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, "Mark set.");
+  }
   ee_wrefresh(com_win);
   clear_com_win = true;
+  if (info_window) paint_info_win();
 }
 
 /* copy or cut the region between the mark and the cursor */
@@ -3439,6 +3451,7 @@ void copy_region(bool cut) {
   }
   if (!valid) {
     mark_line = nullptr;
+      if (info_window) paint_info_win();
     ee_wmove(com_win, 0, 0);
     ee_wclrtoeol(com_win);
     ee_wprintw(com_win, "Mark invalid (line deleted).");
@@ -3520,6 +3533,7 @@ void copy_region(bool cut) {
     }
   }
   mark_line = nullptr;
+  if (info_window) paint_info_win();
 }
 
 /* paste text from the clipboard */
@@ -3608,6 +3622,7 @@ void append_region(bool cut) {
     valid |= (chk == mark_line);
     chk = chk->next_line;
   }
+  if (info_window) paint_info_win();
   mark_line = valid ? mark_line : nullptr;
   if (!valid)
     return;
@@ -3681,6 +3696,7 @@ void append_region(bool cut) {
       delete_char_at_cursor(1);
   }
   mark_line = nullptr;
+  if (info_window) paint_info_win();
 }
 
 /* Search backwards from the current cursor position */
@@ -4800,7 +4816,8 @@ void paint_info_win() {
   }
 
   char status_buf[128];
-  snprintf(status_buf, sizeof(status_buf), " line %d col %d top %d=", 
+  snprintf(status_buf, sizeof(status_buf), "%s line %d col %d top %d=", 
+           (mark_line != nullptr ? "MARK" : ""), 
            curr_line->line_number, scr_pos, absolute_lin);
   int status_len = strlen(status_buf);
 
@@ -6428,6 +6445,7 @@ void strings_init() {
   STATE_ON = catgetlocal("state_on", "ON");
   STATE_OFF = catgetlocal("state_off", "OFF");
   HELP = catgetlocal("cmd_help", "HELP");
+  MARK_str = catgetlocal("cmd_mark", "MARK");
   WRITE = catgetlocal("cmd_write", "WRITE");
   READ = catgetlocal("cmd_read", "READ");
   LINE = catgetlocal("cmd_line", "LINE");
@@ -6547,7 +6565,7 @@ void strings_init() {
   commands[10] = NOCASE;
   commands[11] = EXPAND;
   commands[12] = NOEXPAND;
-  commands[13] = nullptr;
+  commands[13] = MARK_str;
   commands[14] = nullptr;
   commands[15] = "<";
   commands[16] = ">";
