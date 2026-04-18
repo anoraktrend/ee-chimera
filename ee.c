@@ -4162,7 +4162,7 @@ void set_up_term() {
   }
 
   ee_idlok(stdscr, true);
-  com_win = (!profiling_mode) ? nullptr : newwin(1, COLS, (LINES - 1), 0);
+  com_win = profiling_mode ? nullptr : newwin(1, COLS, (LINES - 1), 0);
   ee_keypad(com_win, true);
   ee_idlok(com_win, true);
   ee_wrefresh(com_win);
@@ -4275,7 +4275,7 @@ int menu_op(struct menu_entries menu_list[]) {
   }
   x_off = (COLS - max_width) / 2;
   y_off = (LINES - max_height - 1) / 2;
-  temp_win = (!profiling_mode) ? nullptr : newwin(max_height, max_width, y_off, x_off);
+  temp_win = profiling_mode ? nullptr : newwin(max_height, max_width, y_off, x_off);
   ee_keypad(temp_win, true);
 
   paint_menu(menu_list, max_width, max_height, list_size, top_offset, temp_win,
@@ -4553,14 +4553,14 @@ void resize_info_win() {
   }
 
   if (new_height > 0) {
-    info_win = (!profiling_mode) ? nullptr : newwin(new_height, COLS, 0, 0);
+    info_win = profiling_mode ? nullptr : newwin(new_height, COLS, 0, 0);
     if (info_win != nullptr) {
       ee_idlok(info_win, true);
       ee_keypad(info_win, true);
     }
-    text_win = (!profiling_mode) ? nullptr : newwin(LINES - new_height - 1, COLS, new_height, 0);
+    text_win = profiling_mode ? nullptr : newwin(LINES - new_height - 1, COLS, new_height, 0);
   } else {
-    text_win = (!profiling_mode) ? nullptr : newwin(LINES - 1, COLS, 0, 0);
+    text_win = profiling_mode ? nullptr : newwin(LINES - 1, COLS, 0, 0);
   }
 
   if (text_win != nullptr) {
@@ -4664,7 +4664,7 @@ void no_info_window() {
   delwin(text_win);
   info_window = false;
   last_line = LINES - 2;
-  text_win = (!profiling_mode) ? nullptr : newwin((LINES - 1), COLS, 0, 0);
+  text_win = profiling_mode ? nullptr : newwin((LINES - 1), COLS, 0, 0);
   ee_keypad(text_win, true);
   ee_idlok(text_win, true);
   if(!profiling_mode) clearok(text_win, true);
@@ -4687,12 +4687,12 @@ void create_info_window() {
   }
   last_line = LINES - (info_win_height + 2);
   delwin(text_win);
-  text_win = (!profiling_mode) ? nullptr : newwin((LINES - (info_win_height + 1)), COLS, info_win_height, 0);
+  text_win = profiling_mode ? nullptr : newwin((LINES - (info_win_height + 1)), COLS, info_win_height, 0);
   ee_keypad(text_win, true);
   ee_idlok(text_win, true);
   ee_werase(text_win);
   info_window = true;
-  info_win = (!profiling_mode) ? nullptr : newwin(info_win_height, COLS, 0, 0);
+  info_win = profiling_mode ? nullptr : newwin(info_win_height, COLS, 0, 0);
   ee_werase(info_win);
   info_type = CONTROL_KEYS;
   midscreen(min(scr_vert, last_line), point);
@@ -5051,7 +5051,7 @@ static char *init_name[3] = {"/usr/share/misc/init.ee", nullptr, ".init.ee"};
 void update_libedit_mode() {
 #ifdef HAS_LIBEDIT
   if (el != nullptr) {
-    el_set(el, EL_EDITOR, vi_keys_mode ? "vi" : (emacs_keys_mode ? "emacs" : "vi"));
+    el_set(el, EL_EDITOR, vi_keys_mode ? "vi" : "emacs");
   }
 #endif
 }
@@ -6108,7 +6108,9 @@ static const char *get_key_binding(control_handler handler,
 }
 
 char *format_shortcut(const char *cmd_name, control_handler *table) {
-  static char buf[64];
+  static char buf[16][64];
+  static int idx = 0;
+  char *current_buf = buf[idx++ % 16];
   control_handler h = nullptr;
   const char *short_desc = "";
   for (int i = 0; commands_table[i].name != nullptr; i++) {
@@ -6118,11 +6120,11 @@ char *format_shortcut(const char *cmd_name, control_handler *table) {
       break;
     }
   }
-  if (h == nullptr) return "";
+  if (h == nullptr) return (char *)"";
   const char *key = get_key_binding(h, table);
-  if (key[0] == '\0') return "";
-  sprintf(buf, "%s %s", key, short_desc);
-  return buf;
+  if (key[0] == '\0') return (char *)"";
+  sprintf(current_buf, "%s %s", key, short_desc);
+  return current_buf;
 }
 
 void update_help_strings() {
