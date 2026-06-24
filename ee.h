@@ -73,6 +73,8 @@ struct text {
   struct text *prev_line;
 };
 
+#include "undo.h"
+
 struct menu_entries {
   char *item_string;
   int (*procedure)(struct menu_entries *);
@@ -243,8 +245,13 @@ enum { BASE_TABLE = 0, GOLD_TABLE = 1, EMACS_TABLE = 2 };
 
 extern struct text *curr_line;
 extern struct text *first_line;
+extern struct text *tmp_line;
 extern struct text *dlt_line;
+extern struct text *mark_line;
+extern int tmp_vert;
+extern int tmp_horz;
 extern unsigned char *point;
+extern char *clipboard_buf;
 extern unsigned char *srch_str;
 extern unsigned char *d_char;
 extern unsigned char *d_word;
@@ -257,6 +264,7 @@ extern int absolute_lin;
 extern int horiz_offset;
 extern int last_line;
 extern int last_col;
+extern int in;
 extern int info_type;
 extern int right_margin;
 extern int info_win_height;
@@ -272,7 +280,16 @@ extern bool recv_file;
 extern bool ee_chinese;
 extern bool eightbit;
 extern bool nohighlight;
+extern bool emacs_keys_mode;
+extern bool vi_keys_mode;
+extern bool auto_format;
+extern bool formatted;
+extern bool pasting_mode;
+extern bool formatting_in_progress;
 extern bool restricted;
+extern bool undo_enabled;
+extern char theme_name[128];
+
 extern char *in_file_name;
 extern char *print_command;
 extern FILE *bit_bucket;
@@ -367,12 +384,15 @@ extern char *NOVI_string;
 extern char *BIND;
 extern char *GBIND;
 extern char *EBIND;
+extern char item_alpha[];
 extern char *ree_no_file_msg;
 extern char *menu_too_lrg_msg;
 extern char *more_above_str;
 extern char *more_below_str;
 extern char *chinese_cmd;
 extern char *nochinese_cmd;
+
+extern undo_buffer undo_state;
 
 void strings_init(void);
 void ee_init(void);
@@ -414,6 +434,10 @@ void control_cut(void);
 void control_insert_ascii(void);
 void set_mark(void);
 void paste_region(void);
+void control_undo(void);
+void control_redo(void);
+
+
 void del_word(void);
 void del_line(void);
 void undel_char(void);
@@ -440,13 +464,19 @@ void set_up_term(void);
 void resize_check(void);
 void paint_info_win(void);
 int menu_op(struct menu_entries menu_list[]);
+void shell_op(void);
 void sh_command(const char *string);
 void check_fp(void);
 bool restrict_mode(void);
 void dump_ee_conf(void);
+void update_libedit_mode(void);
 struct text *txtalloc(void);
 
+unsigned char *resiz_line(int factor, struct text *rline, int rpos);
+struct text *find_next_recursive(struct text *line, int count, int *actual_count);
+struct text *find_prev_recursive(struct text *line, int count, int *actual_count);
 void help(void);
+void leave_op(void);
 void Format(void);
 int quit(int noverify);
 int file_op(int arg);

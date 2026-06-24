@@ -1,4 +1,6 @@
 ee
+*.o
+*.txt
 GEMINI.md
 musltesting/
 .#musltesting.lck

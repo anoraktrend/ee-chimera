@@ -61,28 +61,30 @@
 #endif
 
 #include "ee.h"
-#include "lsp.h"
-#include "delete.h"
-#include "search.h"
-#include "format.h"
-#include "menu.h"
-#include "fileio.h"
-#include "theme.h"
 
 void help(void);
-void shell_op(void);
+void Format(void);
+static void shell_op(void);
 void leave_op(void);
 void spell_op(void);
 void ispell_op(void);
 void print_buffer(void);
+void finish(void);
 int quit(int noverify);
 int file_op(int arg);
+int search(int display_message);
 void redraw(void);
+void modes_op(void);
 int unique_test(char *string, char *list[]);
 void command(char *cmd_str);
 void set_up_term(void);
 void edit_abort(int arg);
 void cleanup(void);
+void Auto_Format(void);
+void copy_region(bool cut);
+void append_region(bool cut);
+void paste_region(void);
+void delete_char_at_cursor(int no_verify);
 void insert_line(int no_verify);
 void bol(void);
 void eol(void);
@@ -92,6 +94,11 @@ void right(int no_verify);
 void left(int no_verify);
 void prev_word(void);
 void adv_word(void);
+void undel_char(void);
+void undel_word(void);
+void undel_line(void);
+void search_prompt(void);
+void replace_prompt(void);
 void command_prompt(void);
 void gold_toggle(void);
 void gold_append(void);
@@ -137,7 +144,7 @@ int menu_op_wrapper(struct menu_entries *m) { return menu_op(m); }
  * Returns the number of characters copied (not including the terminating
  * NUL) or -E2BIG if count is 0 or source was truncated.
  */
-ssize_t strscpy(char *dest, const char *src, size_t count) {
+static ssize_t strscpy(char *dest, const char *src, size_t count) {
   size_t res = 0;
 
   if (count == 0) {
@@ -159,17 +166,26 @@ ssize_t strscpy(char *dest, const char *src, size_t count) {
 
 // Tree-Sitter C language
 struct text *first_line; /* first line of current buffer		*/
+struct text *dlt_line;   /* structure for info on deleted line	*/
 struct text *curr_line;  /* current line cursor is on		*/
 struct text *tmp_line;   /* temporary line pointer		*/
+struct text *srch_line;  /* temporary pointer for search routine */
 
 struct files *top_of_stack = nullptr;
 
-undo_buffer undo_state;
+struct text *mark_line = nullptr;
+int mark_position = 0;
+char *clipboard_buf = nullptr;
 
 int char_len_table[256] = {
     [0 ... 8] = 2,   [9] = -1,        [10 ... 31] = 2, [32 ... 126] = 1,
     [127] = 2,       [128 ... 255] = 1};
 
+void update_line_numbers(struct text *line, int delta);
+struct text *find_next_recursive(struct text *line, int count,
+                                        int *actual_count);
+struct text *find_prev_recursive(struct text *line, int count,
+                                        int *actual_count);
 void cleanup(void);
 const char *get_key_name(int i);
 static const char *get_key_binding(control_handler handler,
@@ -179,6 +195,8 @@ static const char *get_key_binding(control_handler handler,
 const TSLanguage *tree_sitter_c(void);
 
 // Tree-Sitter Globals
+TSParser *ts_parser = nullptr;
+TSTree *ts_tree = nullptr;
 #endif
 
 #ifdef HAS_LIBEDIT
@@ -202,38 +220,235 @@ int libedit_getc(EditLine *e, wchar_t *cp) {
 
 // LSP Globals
 #ifdef HAS_LSP
+int lsp_to_child[2];
+int lsp_from_child[2];
+pid_t lsp_pid = -1;
 
+struct diagnostic *diagnostics_list = nullptr;
 #endif
 
+#ifdef HAS_TREESITTER
+const char *ts_read_buffer(void *payload, uint32_t byte_index, TSPoint position,
+                           uint32_t *bytes_read) {
+  struct text *line = (struct text *)payload;
+  uint32_t current_index = 0;
+  static const char newline = '\n';
+
+  while (line != nullptr) {
+    uint32_t text_len = (line->line_length > 0) ? (line->line_length - 1) : 0;
+    uint32_t total_line_len = text_len + 1;
+
+    if (byte_index >= current_index &&
+        byte_index < current_index + total_line_len) {
+      uint32_t offset = byte_index - current_index;
+      if (offset < text_len) {
+        *bytes_read = text_len - offset;
+        return (const char *)(line->line + offset);
+      } else {
+        *bytes_read = 1;
+        return &newline;
+      }
+    }
+    current_index += total_line_len;
+    line = line->next_line;
+  }
+  *bytes_read = 0;
+  return nullptr;
+}
+
+static void reparse() {
+  if (ts_parser == nullptr) {
+    ts_parser = ts_parser_new();
+    ts_parser_set_language(ts_parser, tree_sitter_c());
+  }
+  TSInput input = {
+      .payload = first_line,
+      .read = ts_read_buffer,
+      .encoding = TSInputEncodingUTF8,
+  };
+  if (ts_tree != nullptr) {
+    ts_tree_delete(ts_tree);
+  }
+  ts_tree = ts_parser_parse(ts_parser, nullptr, input);
+}
+#endif
 
 #ifdef HAS_LSP
+static void lsp_send(const char *msg);
 
+void lsp_start() {
+  pipe2(lsp_to_child, O_CLOEXEC);
+  pipe2(lsp_from_child, O_CLOEXEC);
+  lsp_pid = fork();
+  if (lsp_pid == 0) {
+    dup2(lsp_to_child[0], STDIN_FILENO);
+    dup2(lsp_from_child[1], STDOUT_FILENO);
+    int devnull = open("/dev/null", O_WRONLY);
+    if (devnull != -1) {
+      dup2(devnull, STDERR_FILENO);
+      close(devnull);
+    }
+    close(lsp_to_child[0]);
+    close(lsp_to_child[1]);
+    close(lsp_from_child[0]);
+    close(lsp_from_child[1]);
+    execlp("clangd", "clangd", "--log=error", nullptr);
+    exit(1);
+  }
+  close(lsp_to_child[0]);
+  close(lsp_from_child[1]);
+  fcntl(lsp_from_child[0], F_SETFL, O_NONBLOCK);
 
+  // Initialize
+  lsp_send("{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":"
+           "{\"processId\":0,\"rootUri\":null,\"capabilities\":{}}}");
+}
 
+void lsp_send(const char *msg) {
+  char header[128]; /* HEADER_SIZE */
+  sprintf(header, "Content-Length: %zu\r\n\r\n", strlen(msg));
+  write(lsp_to_child[1], header, strlen(header));
+  write(lsp_to_child[1], msg, strlen(msg));
+}
 
+void lsp_open_file(const char *filename) {
+
+  if (filename == nullptr) {
+    return;
+  }
+  // Read buffer into string
+  size_t total_len = 0;
+  struct text const *line = first_line;
+  while (line != nullptr) {
+    total_len += line->line_length;
+    line = line->next_line;
+  }
+  char *buf = malloc(total_len + 1);
+  char *ptr = buf;
+  line = first_line;
+  while (line != nullptr) {
+    memcpy(ptr, line->line, line->line_length - 1);
+    ptr += line->line_length - 1;
+    *ptr = '\n';
+    ptr++;
+    line = line->next_line;
+  }
+  *ptr = '\0';
+
+  // Escape JSON
+  char *escaped = malloc((total_len * 2) + 1);
+  char *e_ptr = escaped;
+  for (char const *ptr_c = buf; (*ptr_c) != 0; ptr_c++) {
+    if (*ptr_c == '\"' || *ptr_c == '\\' || *ptr_c == '\n' || *ptr_c == '\r' ||
+        *ptr_c == '\t') {
+      *e_ptr++ = '\\';
+      if (*ptr_c == '\n') {
+        *e_ptr++ = 'n';
+      } else if (*ptr_c == '\r') {
+        *e_ptr++ = 'r';
+      } else if (*ptr_c == '\t') {
+        *e_ptr++ = 't';
+      } else {
+        *e_ptr++ = *ptr_c;
+      }
+    } else {
+      *e_ptr++ = *ptr_c;
+    }
+  }
+  *e_ptr = '\0';
+
+  char *msg = malloc((total_len * 2) + 1024);
+  sprintf(msg,
+          "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/"
+          "didOpen\",\"params\":{\"textDocument\":{\"uri\":\"file://"
+          "%s\",\"languageId\":\"c\",\"version\":1,\"text\":\"%s\"}}}",
+          filename, escaped);
+  lsp_send(msg);
+  free(buf);
+  free(escaped);
+  free(msg);
+}
+
+void lsp_poll() {
+  char buf[8192]; /* BUF_SIZE */
+  ssize_t const num_read = read(lsp_from_child[0], buf, sizeof(buf) - 1);
+  if (num_read > 0) {
+    buf[num_read] = '\0';
+    // PublishDiagnostics
+    char *diag_ptr = strstr(buf, "\"publishDiagnostics\"");
+    if (diag_ptr != nullptr) {
+      // Very basic parse: find the first diagnostic's range and message
+      // Clear existing
+      while (diagnostics_list != nullptr) {
+        struct diagnostic *next = diagnostics_list->next;
+        free(diagnostics_list->message);
+        free(diagnostics_list);
+        diagnostics_list = next;
+      }
+      // Find "line":
+      char *line_ptr = strstr(diag_ptr, "\"line\":");
+      if (line_ptr != nullptr) {
+        int const line = atoi(line_ptr + 7);
+        char *char_ptr = strstr(line_ptr, "\"character\":");
+        int col = 0;
+        if (char_ptr != nullptr) {
+          col = atoi(char_ptr + 12);
+        }
+        char *msg_ptr = strstr(char_ptr, "\"message\":\"");
+        if (msg_ptr != nullptr) {
+          char const *msg_end = strchr(msg_ptr + 11, '\"');
+          if (msg_end != nullptr) {
+            diagnostics_list = malloc(sizeof(struct diagnostic));
+            diagnostics_list->line = line + 1;
+            diagnostics_list->col = col;
+            diagnostics_list->message =
+                strndup(msg_ptr + 11, msg_end - (msg_ptr + 11));
+            diagnostics_list->next = nullptr;
+          }
+        }
+      }
+    }
+  }
+}
 #endif
 
 #ifdef HAS_ICU
 UResourceBundle *icu_bundle = nullptr;
 #endif
 
+int d_wrd_len;    /* length of deleted word		*/
 int position;     /* offset in bytes from begin of line	*/
 int scr_pos;      /* horizontal position			*/
 int scr_vert;     /* vertical position on screen		*/
 int scr_horz;     /* horizontal position on screen	*/
 int absolute_lin; /* number of lines from top		*/
 int tmp_vert, tmp_horz;
+bool input_file;           /* indicate to read input file		*/
+bool recv_file;            /* indicate reading a file		*/
 bool edit;                 /* continue executing while true	*/
 bool gold;                 /* 'gold' function key pressed		*/
+int fildes;                /* file descriptor			*/
+bool case_sen;             /* case sensitive search flag		*/
 int last_line;             /* last line for text display		*/
 int last_col;              /* last column for text display		*/
 int horiz_offset = 0;      /* offset from left edge of text	*/
 bool clear_com_win;        /* flag to indicate com_win needs clearing */
 bool text_changes = false; /* indicate changes have been made to text */
+int get_fd;                /* file descriptor for reading a file	*/
 bool info_window = true;   /* flag to indicate if help window visible */
 int info_type =
     CONTROL_KEYS;               /* flag to indicate type of info to display */
 bool expand_tabs = true; /* flag for expanding tabs		*/
+int right_margin = 0;    /* the right margin 			*/
+bool observ_margins = true; /* flag for whether margins are observed */
+int shell_fork;
+int temp_stdin;           /* temporary storage for stdin		*/
+int temp_stdout;          /* temp storage for stdout descriptor	*/
+int temp_stderr;          /* temp storage for stderr descriptor	*/
+int pipe_out[2];          /* pipe file desc for output		*/
+int pipe_in[2];           /* pipe file descriptors for input	*/
+bool out_pipe;            /* flag that info is piped out		*/
+bool in_pipe;             /* flag that info is piped in		*/
 bool formatted = false;
 bool pasting_mode = false;
 bool formatting_in_progress = false;
@@ -242,8 +457,7 @@ bool profiling_mode = false;   /* flag indicating paragraph formatted	*/
 bool auto_format = false; /* flag for auto_format mode		*/
 #endif
 bool restricted = false;  /* flag to indicate restricted mode	*/
-bool undo_enabled = true;
-char theme_name[128] = "";
+bool nohighlight = false; /* turns off highlighting		*/
 bool eightbit = true;     /* eight bit character flag		*/
 int local_LINES = 0;      /* copy of LINES, to detect when win resizes */
 int local_COLS = 0;       /* copy of COLS, to detect when win resizes  */
@@ -259,10 +473,24 @@ bool ee_chinese = false; /* allows handling of multi-byte characters  */
                                 /* sequence				     */
 
 unsigned char *point;      /* points to current position in line	*/
+unsigned char *srch_str;   /* pointer for search string		*/
+unsigned char *u_srch_str; /* pointer to non-case sensitive search	*/
+unsigned char *srch_1;     /* pointer to start of suspect string	*/
+unsigned char *srch_2;     /* pointer to next character of string	*/
+unsigned char *srch_3;
+char *in_file_name = nullptr; /* name of input file		*/
+char *tmp_file;        /* temporary file name			*/
+unsigned char *d_char; /* deleted character			*/
+unsigned char *d_word; /* deleted word				*/
+unsigned char *d_line; /* deleted line				*/
+unsigned char
+    in_string[MAX_IN_STRING]; /* buffer for reading a file		*/
 char *print_command = (char *)"lpr"; /* string to use for the print command 	*/
 char *start_at_line = nullptr; /* move to this line at start of session*/
 int in; /* input character			*/
 
+FILE *temp_fp;    /* temporary file pointer		*/
+FILE *bit_bucket; /* file pointer to /dev/null		*/
 
 char *table[] = {"^@", "^A", "^B", "^C", "^D",  "^E", "^F", "^G",
                         "^H", "\t", "^J", "^K", "^L",  "^M", "^N", "^O",
@@ -298,13 +526,49 @@ WINDOW *info_win;
  |	allocate space here for the strings that will be in the menu
  */
 
+struct menu_entries modes_menu[] = {
+    {"", nullptr, nullptr, nullptr, nullptr, 0},  /* title		*/
+    {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 1. tabs to spaces	*/
+    {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 2. case sensitive search*/
+    {"", nullptr, nullptr, nullptr, nullptr,
+     -1},                                         /* 3. margins observed	*/
+    {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 4. auto-paragraph	*/
+    {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 5. eightbit characters*/
+    {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 6. info window	*/
+    {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 7. emacs key bindings*/
+    {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 8. vi key bindings	*/
+    {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 9. right margin	*/
+    {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 10. chinese text	*/
+    {"", nullptr, nullptr, nullptr, dump_ee_conf,
+     -1}, /* 11. save editor config */
+    {nullptr, nullptr, nullptr, nullptr, nullptr, -1}
+    /* terminator		*/
+};
 
+char *mode_strings[12];
 
 #define MAX_INFO_LINES 12
 char *dynamic_info_lines[MAX_INFO_LINES];
 int num_info_lines = 0;
+struct menu_entries config_dump_menu[] = {
+    {"", nullptr, nullptr, nullptr, nullptr, 0},
+    {"", nullptr, nullptr, nullptr, nullptr, -1},
+    {"", nullptr, nullptr, nullptr, nullptr, -1},
+    {nullptr, nullptr, nullptr, nullptr, nullptr, -1}};
 
+struct menu_entries leave_menu[] = {
+    {"", nullptr, nullptr, nullptr, nullptr, -1},
+    {"", nullptr, nullptr, nullptr, finish, -1},
+    {"", nullptr, nullptr, quit_wrapper, nullptr, 1},
+    {nullptr, nullptr, nullptr, nullptr, nullptr, -1}};
 
+struct menu_entries file_menu[] = {
+    {"", nullptr, nullptr, nullptr, nullptr, -1},
+    {"", nullptr, nullptr, file_op_wrapper, nullptr, READ_FILE},
+    {"", nullptr, nullptr, file_op_wrapper, nullptr, WRITE_FILE},
+    {"", nullptr, nullptr, file_op_wrapper, nullptr, SAVE_FILE},
+    {"", nullptr, nullptr, nullptr, print_buffer, -1},
+    {nullptr, nullptr, nullptr, nullptr, nullptr, -1}};
 
 struct menu_entries search_menu[] = {
     {"", nullptr, nullptr, nullptr, nullptr, 0},
@@ -320,7 +584,39 @@ struct menu_entries spell_menu[] = {
 #endif
     {nullptr, nullptr, nullptr, nullptr, nullptr, -1}};
 
+struct menu_entries misc_menu[] = {
+    {"", nullptr, nullptr, nullptr, nullptr, -1},
+#ifdef HAS_AUTOFORMAT
+    {"", nullptr, nullptr, nullptr, Format, -1},
+#endif
+    {"", nullptr, nullptr, nullptr, shell_op, -1},
+#ifdef HAS_MENU
+    {"", (int (*)(struct menu_entries *))menu_op_wrapper,
+     (struct menu_entries *)spell_menu, nullptr, nullptr, -1},
+#endif
+    {nullptr, nullptr, nullptr, nullptr, nullptr, -1}};
 
+struct menu_entries main_menu[] = {
+    {"", nullptr, nullptr, nullptr, nullptr, -1},
+    {"", nullptr, nullptr, nullptr, leave_op, -1},
+#ifdef HAS_HELP
+    {"", nullptr, nullptr, nullptr, help, -1},
+#endif
+    {"", (int (*)(struct menu_entries *))menu_op_wrapper,
+#ifdef HAS_MENU
+     (struct menu_entries *)file_menu, nullptr, nullptr, -1},
+#endif
+    {"", nullptr, nullptr, nullptr, redraw, -1},
+    {"", nullptr, nullptr, nullptr, modes_op, -1},
+    {"", (int (*)(struct menu_entries *))menu_op_wrapper,
+#ifdef HAS_MENU
+     (struct menu_entries *)search_menu, nullptr, nullptr, -1},
+#endif
+    {"", (int (*)(struct menu_entries *))menu_op_wrapper,
+#ifdef HAS_MENU
+     (struct menu_entries *)misc_menu, nullptr, nullptr, -1},
+#endif
+    {nullptr, nullptr, nullptr, nullptr, nullptr, -1}};
 
 char *help_text[23];
 char *control_keys[5];
@@ -342,6 +638,8 @@ char *no_file_string;
 char *ascii_code_str;
 char *printer_msg_str;
 char *command_str;
+char *file_write_prompt_str;
+char *file_read_prompt_str;
 char *char_str;
 char *unkn_cmd_str;
 char *non_unique_cmd_msg;
@@ -353,6 +651,22 @@ char *usage1;
 char *usage2;
 char *usage3;
 char *usage4;
+char *file_is_dir_msg;
+char *new_file_msg;
+char *cant_open_msg;
+char *open_file_msg;
+char *file_read_fin_msg;
+char *reading_file_msg;
+char *read_only_msg;
+char *file_read_lines_msg;
+char *save_file_name_prompt;
+char *file_not_saved_msg;
+char *changes_made_prompt;
+char *yes_char;
+char *file_exists_prompt;
+char *create_file_fail_msg;
+char *writing_file_msg;
+char *file_written_msg;
 char *searching_msg;
 char *str_not_found_msg;
 char *search_prompt_str;
@@ -518,8 +832,6 @@ struct command_map commands_table[] = {
     {"prev_word", control_prev_word, "move to previous word", "prev word"},
     {"newline", control_newline, "insert newline", "newline"},
     {"backspace", control_backspace, "delete previous character", "backspace"},
-    {"undo", control_undo, "undo last change", "undo"},
-    {"redo", control_redo, "redo last change", "redo"},
     {nullptr, nullptr, nullptr, nullptr}};
 
 void bind_key(const char *key_str, const char *cmd_name, int table_type) {
@@ -691,7 +1003,6 @@ int main(int argc, char *argv[]) {
   gold = case_sen = false;
   shell_fork = 1;
   strings_init();
-  undo_init(&undo_state);
   ee_init();
   if (argc > 0) {
     get_options(argc, argv);
@@ -701,7 +1012,6 @@ int main(int argc, char *argv[]) {
     if (COLS == 0) COLS = 80;
   }
   set_up_term();
-  apply_startup_theme();
   if (right_margin == 0) {
     right_margin = COLS - 1;
   }
@@ -914,7 +1224,7 @@ int main(int argc, char *argv[]) {
 }
 
 /* resize the line to length + factor*/
-unsigned char *resiz_line(int factor, struct text *rline, int rpos) {
+static unsigned char *resiz_line(int factor, struct text *rline, int rpos) {
   rline->max_length += factor;
   rline->line = realloc(rline->line, rline->max_length);
   return rline->line + rpos - 1;
@@ -1046,14 +1356,109 @@ void insert(int character) {
   }
 
   draw_line(scr_vert, scr_horz, curr_line, position);
-  
-  if (undo_enabled) {
-    undo_record_insert(&undo_state, curr_line->line_number, position, utf8_len, (unsigned char *)utf8_buf);
+}
+
+void update_line_numbers(struct text *line, int delta) {
+  struct text *curr = line;
+  while (curr != nullptr) {
+    curr->line_number += delta;
+    curr = curr->next_line;
   }
 }
 
-
 /* delete character		*/
+void delete_char_at_cursor(int disp) {
+  unsigned char *tp;
+  unsigned char *temp2;
+  struct text *temp_buff;
+  int temp_vert;
+  int temp_pos;
+  int del_width = 1;
+
+  if (point != curr_line->line) /* if not at beginning of line	*/
+  {
+    text_changes = true;
+    temp2 = tp = point;
+#ifdef HAS_ICU
+    if (ee_chinese) {
+      int32_t i = (int32_t)(point - curr_line->line);
+      U8_BACK_1(curr_line->line, 0, i);
+      unsigned char *new_p = curr_line->line + i;
+      del_width = (int)(point - new_p);
+    }
+#else
+    if (ee_chinese && (position >= 2) && (*(point - 2) > 127)) {
+      del_width = 2;
+    }
+#endif
+    tp -= del_width;
+    point -= del_width;
+    position -= del_width;
+    temp_pos = position;
+    curr_line->line_length -= del_width;
+    if ((*tp < ' ') || (*tp >= 127)) { /* check for TAB */
+      scanline(tp);
+    } else {
+      scr_horz -= del_width;
+    }
+    scr_pos = scr_horz;
+    if (in == 8) {
+      if (del_width == 1) {
+        {
+          *d_char = *point; /* save deleted character  */
+        }
+      } else {
+        memcpy(d_char, point, del_width);
+      }
+      d_char[del_width] = '\0';
+    }
+    size_t shift_len = curr_line->line_length - position + 1;
+    memmove(tp, temp2, shift_len);
+    if ((scr_horz < horiz_offset) && (horiz_offset > 0)) {
+      horiz_offset -= 8;
+      midscreen(scr_vert, point);
+    }
+  } else if (curr_line->prev_line != nullptr) {
+    text_changes = true;
+    left(disp); /* go to previous line	*/
+    temp_buff = curr_line->next_line;
+    point = resiz_line(temp_buff->line_length, curr_line, position);
+    if (temp_buff->next_line != nullptr) {
+      temp_buff->next_line->prev_line = curr_line;
+    }
+    curr_line->next_line = temp_buff->next_line;
+    update_line_numbers(curr_line->next_line, -1);
+    temp2 = temp_buff->line;
+    if (in == 8) {
+      d_char[0] = '\n';
+      d_char[1] = '\0';
+    }
+    size_t join_len = temp_buff->line_length;
+    memcpy(point, temp2, join_len);
+    curr_line->line_length += join_len - 1;
+    free(temp_buff->line);
+    free(temp_buff);
+    temp_buff = curr_line;
+    temp_vert = scr_vert;
+    scr_pos = scr_horz;
+    if (scr_vert < last_line) {
+      ee_wmove(text_win, scr_vert + 1, 0);
+      ee_wdeleteln(text_win);
+    }
+    int lines_to_find = last_line - temp_vert;
+    temp_buff = find_next_recursive(temp_buff, lines_to_find, &temp_vert);
+
+    if ((temp_vert == last_line) && (temp_buff != nullptr)) {
+      tp = temp_buff->line;
+      ee_wmove(text_win, last_line, 0);
+      ee_wclrtobot(text_win);
+      draw_line(last_line, 0, temp_buff, 1);
+      ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+    }
+  }
+  draw_line(scr_vert, scr_horz, curr_line, position);
+  formatted = false;
+}
 
 #ifdef HAS_ICU
 static int u_char_width(UChar32 c, int column) {
@@ -1225,6 +1630,60 @@ static int get_node_attribute(int line, int col) {
 #endif
 
 #ifdef HAS_LSP
+void lsp_change_file(const char *filename) {
+  if (filename == nullptr) {
+    return;
+  }
+  size_t total_len = 0;
+  struct text const *line = first_line;
+  while (line != nullptr) {
+    total_len += line->line_length;
+    line = line->next_line;
+  }
+  char *buf = (char *)malloc(total_len + 1);
+  char *ptr = buf;
+  line = first_line;
+  while (line != nullptr) {
+    memcpy(ptr, line->line, line->line_length - 1);
+    ptr += line->line_length - 1;
+    *ptr = '\n';
+    ptr++;
+    line = line->next_line;
+  }
+  *ptr = '\0';
+
+  char *escaped = (char *)malloc((total_len * 2) + 1);
+  char *e_ptr = escaped;
+  for (char const *ptr_c = buf; (*ptr_c) != 0; ptr_c++) {
+    if (*ptr_c == '\"' || *ptr_c == '\\' || *ptr_c == '\n' || *ptr_c == '\r' ||
+        *ptr_c == '\t') {
+      *e_ptr++ = '\\';
+      if (*ptr_c == '\n') {
+        *e_ptr++ = 'n';
+      } else if (*ptr_c == '\r') {
+        *e_ptr++ = 'r';
+      } else if (*ptr_c == '\t') {
+        *e_ptr++ = 't';
+      } else {
+        *e_ptr++ = *ptr_c;
+      }
+    } else {
+      *e_ptr++ = *ptr_c;
+    }
+  }
+  *e_ptr = '\0';
+
+  char *msg = (char *)malloc((total_len * 2) + 1024);
+  sprintf(msg,
+          "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/"
+          "didChange\",\"params\":{\"textDocument\":{\"uri\":\"file://"
+          "%s\",\"version\":2},\"contentChanges\":[{\"text\":\"%s\"}]}}",
+          filename, escaped);
+  lsp_send(msg);
+  free(buf);
+  free(escaped);
+  free(msg);
+}
 #endif
 
 /* redraw line from current position */
@@ -1413,6 +1872,11 @@ struct files *name_alloc(void) {
 }
 
 /* return the length of the first word in the line */
+static int first_word_len(struct text *line) {
+  char *ptr = (char *)line->line;
+  ptr += strspn(ptr, " \t");  /* Skip leading whitespace */
+  return strcspn(ptr, " \t"); /* Count length of the word */
+}
 
 /* move to next word in string		*/
 void *next_word(void *s) {
@@ -2208,6 +2672,34 @@ char *get_string(char *prompt, int advance) {
 }
 
 /* compare two strings  */
+bool compare(char *string1, char *string2, bool sensitive) {
+  char *strng1 = string1;
+  char *strng2 = string2;
+  bool equal = true;
+
+  if ((strng1 == nullptr) || (strng2 == nullptr) || (*strng1 == '\0') ||
+      (*strng2 == '\0')) {
+    return false;
+  }
+  while (equal) {
+    if (sensitive) {
+      if (*strng1 != *strng2) {
+        equal = false;
+      }
+    } else {
+      if (toupper((unsigned char)*strng1) != toupper((unsigned char)*strng2)) {
+        equal = false;
+      }
+    }
+    strng1++;
+    strng2++;
+    if ((*strng1 == '\0') || (*strng2 == '\0') || (*strng1 == ' ') ||
+        (*strng2 == ' ')) {
+      break;
+    }
+  }
+  return equal;
+}
 
 struct line_search_res {
   struct text *line;
@@ -2375,8 +2867,153 @@ void get_options(int numargs, char *arguments[]) {
 }
 
 /* open or close files according to flags */
+void check_fp() {
+  int line_num;
+  int temp;
+  struct stat buf;
+
+  clear_com_win = true;
+  tmp_vert = scr_vert;
+  tmp_horz = scr_horz;
+  tmp_line = curr_line;
+  if (input_file) {
+    in_file_name = tmp_file = (char *)top_of_stack->name;
+    top_of_stack = top_of_stack->next_name;
+  }
+  temp = stat(tmp_file, &buf);
+  buf.st_mode &= ~07777;
+  if ((temp != -1) && (buf.st_mode != 0100000) && (buf.st_mode != 0)) {
+    ee_wprintw(com_win, file_is_dir_msg, tmp_file);
+    ee_wrefresh(com_win);
+    if (input_file) {
+      quit(0);
+      return;
+    }
+    return;
+  }
+  if ((get_fd = open(tmp_file, O_RDONLY | O_CLOEXEC)) == -1) {
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    if (input_file) {
+      ee_wprintw(com_win, new_file_msg, tmp_file);
+    } else {
+      ee_wprintw(com_win, cant_open_msg, tmp_file);
+    }
+    ee_wrefresh(com_win);
+    ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+    ee_wrefresh(text_win);
+    recv_file = false;
+    input_file = false;
+    return;
+  }
+  get_file(tmp_file);
+
+  recv_file = false;
+  line_num = curr_line->line_number;
+  scr_vert = tmp_vert;
+  scr_horz = tmp_horz;
+  if (input_file) {
+    curr_line = first_line;
+  } else {
+    curr_line = tmp_line;
+  }
+  point = curr_line->line;
+#ifdef HAS_TREESITTER
+  reparse();
+#endif
+  draw_screen();
+  if (input_file) {
+    input_file = false;
+    if (start_at_line != nullptr) {
+      line_num = atoi(start_at_line) - 1;
+      move_rel('d', line_num);
+      line_num = 0;
+      start_at_line = nullptr;
+    }
+  } else {
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    text_changes = true;
+    if ((tmp_file != nullptr) && (*tmp_file != '\0')) {
+      ee_wprintw(com_win, file_read_fin_msg, tmp_file);
+    }
+  }
+  ee_wrefresh(com_win);
+  ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+  ee_wrefresh(text_win);
+}
 
 /* read specified file into current buffer	*/
+void get_file(const char *file_name) {
+  int can_read; /* file has at least one character	*/
+  int length;   /* length of line read by read		*/
+  int append;   /* should text be appended to current line */
+  struct text *temp_line;
+  char ro_flag = 0;
+
+  if (recv_file) /* if reading a file			*/
+  {
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, reading_file_msg, file_name);
+    if (access(file_name, 2) != 0) /* check permission to write */
+    {
+      if ((errno == ENOTDIR) || (errno == EACCES) || (errno == EROFS) ||
+          (errno == ETXTBSY) || (errno == EFAULT)) {
+        ee_wprintw(com_win, "%s", read_only_msg);
+        ro_flag = 1;
+      }
+    }
+    ee_wrefresh(com_win);
+  }
+  if (curr_line->line_length > 1) /* if current line is not blank	*/
+  {
+    insert_line(0);
+    left(0);
+    append = 0;
+  } else {
+    {
+      append = 1;
+    }
+  }
+  can_read = 0; /* test if file has any characters  */
+  while (((length = read(get_fd, in_string, 512)) != 0) && (length != -1)) {
+    can_read = 1; /* if set file has at least 1 character   */
+    get_line(length, in_string, &append);
+  }
+  if ((can_read != 0) && (curr_line->line_length == 1)) {
+    temp_line = curr_line->prev_line;
+    temp_line->next_line = curr_line->next_line;
+    if (temp_line->next_line != nullptr) {
+      temp_line->next_line->prev_line = temp_line;
+    }
+    if (curr_line->line != nullptr) {
+      free(curr_line->line);
+    }
+    free(curr_line);
+    curr_line = temp_line;
+  }
+  if (input_file) /* if this is the file to be edited display number of lines
+                   */
+  {
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, file_read_lines_msg, in_file_name, curr_line->line_number);
+    if (ro_flag != 0) {
+      ee_wprintw(com_win, "%s", read_only_msg);
+    }
+    ee_wrefresh(com_win);
+  } else if (can_read != 0) {
+    { /* not input_file and file is non-zero size */
+      text_changes = true;
+    }
+  }
+
+  if (recv_file) /* if reading a file			*/
+  {
+    in = EOF;
+  }
+}
 
 /* read string and split into lines */
 void get_line(int length, unsigned char *in_string, int *append) {
@@ -2454,6 +3091,38 @@ void draw_screen() /* redraw the screen from current postion       */
 }
 
 /* prepare to exit edit session	*/
+void finish() {
+  char *file_name = in_file_name;
+
+  /*
+   |	changes made here should be reflected in the 'save'
+   |	portion of file_op()
+   */
+
+  if ((file_name == nullptr) || (*file_name == '\0')) {
+    file_name = get_string(save_file_name_prompt, 1);
+  }
+
+  if ((file_name == nullptr) || (*file_name == '\0')) {
+    ee_wmove(com_win, 0, 0);
+    ee_wprintw(com_win, "%s", file_not_saved_msg);
+    ee_wclrtoeol(com_win);
+    ee_wrefresh(com_win);
+    clear_com_win = true;
+    return;
+  }
+
+  tmp_file = resolve_name(file_name);
+  if (tmp_file != file_name) {
+    free(file_name);
+    file_name = tmp_file;
+  }
+
+  if (write_file(file_name, true) != 0) {
+    text_changes = false;
+    quit(0);
+  }
+}
 
 /* exit editor			*/
 int quit(int noverify) {
@@ -2534,36 +3203,784 @@ void edit_abort(int arg) {
   exit(1);
 }
 
+static void free_text_lines(struct text *line) {
+  struct text *curr = line;
+  struct text *next;
+  while (curr != nullptr) {
+    next = curr->next_line;
+    if (curr->line != nullptr)
+      free(curr->line);
+    free(curr);
+    curr = next;
+  }
+}
 
+void delete_text() {
+  free_text_lines(first_line->next_line);
+  first_line->next_line = nullptr;
+  *first_line->line = '\0';
+  first_line->line_length = 1;
+  first_line->line_number = 1;
+  curr_line = first_line;
+  point = curr_line->line;
+  scr_pos = scr_vert = scr_horz = 0;
+  position = 1;
+}
 
+int write_file(char *file_name, bool warn_if_exists) {
+  char cr;
+  char *tmp_point;
+  struct text *out_line;
+  int lines;
+  int charac;
+  int temp_pos;
+  int write_flag = 1;
+
+  charac = lines = 0;
+  if (warn_if_exists && ((in_file_name == nullptr) ||
+                         (strcmp((char *)in_file_name, file_name) != 0))) {
+    if ((temp_fp = fopen(file_name, "r")) != nullptr) {
+      tmp_point = get_string(file_exists_prompt, 1);
+      write_flag = (int)(toupper((unsigned char)*tmp_point) ==
+                         toupper((unsigned char)*yes_char));
+      fclose(temp_fp);
+      free(tmp_point);
+    }
+  }
+
+  clear_com_win = true;
+
+  if (write_flag != 0) {
+    if ((temp_fp = fopen(file_name, "w")) == nullptr) {
+      clear_com_win = true;
+      ee_wmove(com_win, 0, 0);
+      ee_wclrtoeol(com_win);
+      ee_wprintw(com_win, create_file_fail_msg, file_name);
+      ee_wrefresh(com_win);
+      return 0;
+    }
+
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, writing_file_msg, file_name);
+    ee_wrefresh(com_win);
+    cr = '\n';
+    out_line = first_line;
+    while (out_line != nullptr) {
+      temp_pos = 1;
+      tmp_point = (char *)out_line->line;
+      while (temp_pos < out_line->line_length) {
+        putc(*tmp_point, temp_fp);
+        tmp_point++;
+        temp_pos++;
+      }
+      charac += out_line->line_length;
+      out_line = out_line->next_line;
+      putc(cr, temp_fp);
+      lines++;
+    }
+    fclose(temp_fp);
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, file_written_msg, file_name, lines, charac);
+    ee_wrefresh(com_win);
+    return 1;
+  }
+  return 0;
+}
 
 /* search for string in srch_str	*/
+int search(int display_message) {
+  int lines_moved;
+  int iter;
+  int found;
+
+  if ((srch_str == nullptr) || (*srch_str == '\0')) {
+    return 0;
+  }
+  if (display_message != 0) {
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, "%s", searching_msg);
+    ee_wrefresh(com_win);
+    clear_com_win = true;
+  }
+  lines_moved = 0;
+  found = 0;
+  srch_line = curr_line;
+  srch_1 = point;
+  if (position < curr_line->line_length) {
+    srch_1++;
+  }
+  iter = position + 1;
+  while ((found == 0) && (srch_line != nullptr)) {
+    while ((iter < srch_line->line_length) && (found == 0)) {
+      srch_2 = srch_1;
+      if (case_sen) /* if case sensitive		*/
+      {
+        srch_3 = srch_str;
+        while ((*srch_2 == *srch_3) && (*srch_3 != '\0')) {
+          found = 1;
+          srch_2++;
+          srch_3++;
+        } /* end while	*/
+      } else /* if not case sensitive	*/
+      {
+        srch_3 = u_srch_str;
+        while ((toupper(*srch_2) == *srch_3) && (*srch_3 != '\0')) {
+          found = 1;
+          srch_2++;
+          srch_3++;
+        }
+      } /* end else	*/
+      if ((*srch_3 != '\0') || !(found != 0)) {
+        found = 0;
+        if (iter < srch_line->line_length) {
+          srch_1++;
+        }
+        iter++;
+      }
+    }
+    if (found == 0) {
+      srch_line = srch_line->next_line;
+      if (srch_line != nullptr) {
+        srch_1 = srch_line->line;
+      }
+      iter = 1;
+      lines_moved++;
+    }
+  }
+  if (found != 0) {
+    if (display_message != 0) {
+      ee_wmove(com_win, 0, 0);
+      ee_wclrtoeol(com_win);
+      ee_wrefresh(com_win);
+    }
+    if (lines_moved == 0) {
+      while (position < iter) {
+        right(1);
+      }
+    } else {
+      if (lines_moved < 30) {
+        move_rel('d', lines_moved);
+        while (position < iter) {
+          right(1);
+        }
+      } else {
+        absolute_lin += lines_moved;
+        curr_line = srch_line;
+        point = srch_1;
+        position = iter;
+        scanline(point);
+        scr_pos = scr_horz;
+        midscreen((last_line / 2), point);
+      }
+    }
+  } else {
+    if (display_message != 0) {
+      ee_wmove(com_win, 0, 0);
+      ee_wclrtoeol(com_win);
+      ee_wprintw(com_win, str_not_found_msg, srch_str);
+      ee_wrefresh(com_win);
+    }
+    ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+  }
+  return found;
+}
 
 /* prompt and read search string (srch_str)	*/
+void search_prompt() {
+  if (srch_str != nullptr) {
+    free(srch_str);
+  }
+  if ((u_srch_str != nullptr) && (*u_srch_str != '\0')) {
+    free(u_srch_str);
+  }
+  srch_str = (unsigned char *)get_string(search_prompt_str, 0);
+  gold = false;
+  srch_3 = srch_str;
+  srch_1 = u_srch_str = malloc(strlen((char *)srch_str) + 1);
+  while (*srch_3 != '\0') {
+    *srch_1 = toupper(*srch_3);
+    srch_1++;
+    srch_3++;
+  }
+  *srch_1 = '\0';
+  search(1);
+}
 
 /* set a mark for copying or cutting text */
+void set_mark() {
+  if (mark_line != nullptr) {
+    mark_line = nullptr;
+    mark_position = 0;
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, "Mark cleared.");
+  } else {
+    mark_line = curr_line;
+    mark_position = position;
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, "Mark set.");
+  }
+  ee_wrefresh(com_win);
+  clear_com_win = true;
+  if (info_window) paint_info_win();
+}
 
 /* copy or cut the region between the mark and the cursor */
+void copy_region(bool cut) {
+  if (!mark_line) {
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, "No mark set.");
+    ee_wrefresh(com_win);
+    clear_com_win = true;
+    return;
+  }
+  /* Verify the mark is still valid (hasn't been deleted) */
+  bool valid = false;
+  struct text *chk = first_line;
+  while (chk) {
+    if (chk == mark_line) {
+      valid = true;
+      break;
+    }
+    chk = chk->next_line;
+  }
+  if (!valid) {
+    mark_line = nullptr;
+      if (info_window) paint_info_win();
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, "Mark invalid (line deleted).");
+    ee_wrefresh(com_win);
+    clear_com_win = true;
+    return;
+  }
+  struct text *start_line = mark_line;
+  int start_pos = mark_position;
+  struct text *end_line = curr_line;
+  int end_pos = position;
+  /* Ensure start comes before end */
+  bool swap = false;
+  if (start_line->line_number > end_line->line_number) {
+    swap = true;
+  } else if (start_line->line_number == end_line->line_number &&
+             start_pos > end_pos) {
+    swap = true;
+  }
+  if (swap) {
+    start_line = curr_line;
+    start_pos = position;
+    end_line = mark_line;
+    end_pos = mark_position;
+  }
+  /* Calculate buffer size */
+  int est_size = 0;
+  struct text *tl = start_line;
+  while (tl && tl != end_line) {
+    est_size += tl->line_length;
+    tl = tl->next_line;
+  }
+  est_size += end_line->line_length;
+  if (clipboard_buf)
+    free(clipboard_buf);
+  clipboard_buf = malloc(est_size + 1);
+  char *cb_ptr = clipboard_buf;
+  /* Copy into clipboard buffer */
+  tl = start_line;
+  if (start_line == end_line) {
+    memcpy(cb_ptr, start_line->line + start_pos - 1, end_pos - start_pos);
+    cb_ptr += (end_pos - start_pos);
+  } else {
+    memcpy(cb_ptr, start_line->line + start_pos - 1,
+           start_line->line_length - start_pos);
+    cb_ptr += (start_line->line_length - start_pos);
+    *cb_ptr++ = '\n';
+    tl = tl->next_line;
+    while (tl && tl != end_line) {
+      memcpy(cb_ptr, tl->line, tl->line_length - 1);
+      cb_ptr += (tl->line_length - 1);
+      *cb_ptr++ = '\n';
+      tl = tl->next_line;
+    }
+    memcpy(cb_ptr, end_line->line, end_pos - 1);
+    cb_ptr += (end_pos - 1);
+  }
+  *cb_ptr = '\0';
+  ee_wmove(com_win, 0, 0);
+  ee_wclrtoeol(com_win);
+  ee_wprintw(com_win, cut ? "Region cut." : "Region copied.");
+  ee_wrefresh(com_win);
+  clear_com_win = true;
+  /* If cutting, simulate backspacing to delete the region */
+  if (cut) {
+    /* Move cursor to end of the region if it isn't already */
+    while (curr_line != end_line || position != end_pos) {
+      if (curr_line->line_number < end_line->line_number ||
+          (curr_line == end_line && position < end_pos)) {
+        right(1);
+      } else {
+        left(1);
+      }
+    }
+    int del_len = cb_ptr - clipboard_buf;
+    for (int i = 0; i < del_len; i++) {
+      in = 8; /* ASCII backspace */
+      delete_char_at_cursor(1);
+    }
+  }
+  mark_line = nullptr;
+  if (info_window) paint_info_win();
+}
 
 /* paste text from the clipboard */
+void paste_region() {
+  if (!clipboard_buf) {
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, "Clipboard empty.");
+    ee_wrefresh(com_win);
+    clear_com_win = true;
+    return;
+  }
+  char *ptr = clipboard_buf;
+  while (*ptr) {
+    if (*ptr == '\n') {
+      insert_line(1);
+    } else {
+      insert(*ptr);
+    }
+    ptr++;
+  }
+}
 
 /* basic find and replace */
+void replace_prompt() {
+  char *search_term = get_string("Replace: ", 0);
+  if (!search_term || *search_term == '\0')
+    return;
+  char *replace_term = get_string("With: ", 0);
+  if (srch_str != nullptr)
+    free(srch_str);
+  if (u_srch_str != nullptr)
+    free(u_srch_str);
+  srch_str = (unsigned char *)search_term;
+  srch_3 = srch_str;
+  srch_1 = u_srch_str = malloc(strlen((char *)srch_str) + 1);
+  while (*srch_3 != '\0') {
+    *srch_1 = toupper(*srch_3);
+    srch_1++;
+    srch_3++;
+  }
+  *srch_1 = '\0';
+  int found = search(1);
+  if (found) {
+    int len = strlen((char *)search_term);
+    for (int i = 0; i < len; i++) {
+      in = 8;
+      delete_char_at_cursor(1);
+    }
+    if (replace_term) {
+      for (size_t i = 0; i < strlen((char *)replace_term); i++) {
+        insert(replace_term[i]);
+      }
+    }
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, "Replaced 1 occurrence.");
+    ee_wrefresh(com_win);
+    clear_com_win = true;
+  }
+  if (replace_term)
+    free(replace_term);
+}
 
 /* append the region between the mark and cursor to the existing clipboard */
+void append_region(bool cut) {
+  if (!mark_line) {
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, "No mark set.");
+    ee_wrefresh(com_win);
+    clear_com_win = true;
+    return;
+  }
+
+  if (!clipboard_buf) {
+    /* If clipboard is empty, append is just a normal copy */
+    copy_region(cut);
+    return;
+  }
+
+  /* Branchless validation and swap logic */
+  bool valid = false;
+  struct text *chk = first_line;
+  while (chk) {
+    valid |= (chk == mark_line);
+    chk = chk->next_line;
+  }
+  if (info_window) paint_info_win();
+  mark_line = valid ? mark_line : nullptr;
+  if (!valid)
+    return;
+
+  bool swap = (mark_line->line_number > curr_line->line_number) ||
+              ((mark_line->line_number == curr_line->line_number) &&
+               (mark_position > position));
+
+  struct text *start_line = swap ? curr_line : mark_line;
+  int start_pos = swap ? position : mark_position;
+  struct text *end_line = swap ? mark_line : curr_line;
+  int end_pos = swap ? mark_position : position;
+
+  /* Calculate new region size */
+  int est_size = end_line->line_length;
+  struct text *tl = start_line;
+  while (tl && tl != end_line) {
+    est_size += tl->line_length;
+    tl = tl->next_line;
+  }
+
+  /* Reallocate existing clipboard to hold the appended data */
+  int current_cb_len = strlen(clipboard_buf);
+  char *new_cb = realloc(clipboard_buf, current_cb_len + est_size + 1);
+  if (!new_cb)
+    return;
+  clipboard_buf = new_cb;
+
+  char *cb_ptr = clipboard_buf + current_cb_len;
+
+  /* Copy into clipboard buffer (reusing optimized copy logic) */
+  bool single_line = (start_line == end_line);
+  int copy_len =
+      single_line ? (end_pos - start_pos) : (start_line->line_length - start_pos);
+
+  memcpy(cb_ptr, start_line->line + start_pos - 1, copy_len);
+  cb_ptr += copy_len;
+  *cb_ptr = '\n';
+  cb_ptr += !single_line;
+
+  tl = start_line->next_line;
+  while (!single_line && tl && tl != end_line) {
+    memcpy(cb_ptr, tl->line, tl->line_length - 1);
+    cb_ptr += (tl->line_length - 1);
+    *cb_ptr++ = '\n';
+    tl = tl->next_line;
+  }
+
+  if (!single_line) {
+    memcpy(cb_ptr, end_line->line, end_pos - 1);
+    cb_ptr += (end_pos - 1);
+  }
+  *cb_ptr = '\0';
+
+  ee_wmove(com_win, 0, 0);
+  ee_wclrtoeol(com_win);
+  ee_wprintw(com_win, cut ? "Region cut & appended." : "Region appended.");
+  ee_wrefresh(com_win);
+  clear_com_win = true;
+
+  /* Simulate backspacing for cuts */
+  if (cut) {
+    while (curr_line != end_line || position != end_pos) {
+      bool go_right = (curr_line->line_number < end_line->line_number) ||
+                      (curr_line == end_line && position < end_pos);
+      go_right ? right(1) : left(1);
+    }
+    int del_len = cb_ptr - (clipboard_buf + current_cb_len);
+    in = 8;
+    for (int i = 0; i < del_len; i++)
+      delete_char_at_cursor(1);
+  }
+  mark_line = nullptr;
+  if (info_window) paint_info_win();
+}
 
 /* Search backwards from the current cursor position */
+int search_reverse(int display_message) {
+  if (!srch_str || *srch_str == '\0')
+    return 0;
+
+  if (display_message) {
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, "           ...searching reverse");
+    ee_wrefresh(com_win);
+    clear_com_win = true;
+  }
+
+  int lines_moved = 0;
+  int found = 0;
+  srch_line = curr_line;
+
+  /* Start searching immediately before the cursor */
+  int iter = position - 1;
+  int search_len = strlen((char *)srch_str);
+
+  while (!found && srch_line != nullptr) {
+    while (iter >= search_len && !found) {
+      unsigned char *chk_ptr = srch_line->line + iter - search_len;
+      unsigned char *ref_ptr = case_sen ? srch_str : u_srch_str;
+
+      bool match = true;
+      for (int i = 0; i < search_len; i++) {
+        unsigned char c = chk_ptr[i];
+        c = case_sen ? c : toupper(c);
+        match &= (c == ref_ptr[i]);
+      }
+
+      if (match) {
+        found = 1;
+        srch_1 = chk_ptr;
+      } else {
+        iter--;
+      }
+    }
+
+    if (!found) {
+      srch_line = srch_line->prev_line;
+      lines_moved--;
+      if (srch_line)
+        iter = srch_line->line_length;
+    }
+  }
+
+  if (found) {
+    if (display_message) {
+      ee_wmove(com_win, 0, 0);
+      ee_wclrtoeol(com_win);
+      ee_wrefresh(com_win);
+    }
+    /* Move cursor to the found location */
+    int new_pos = (srch_1 - srch_line->line) + 1;
+    while (lines_moved < 0) {
+      up();
+      lines_moved++;
+    }
+    while (position > new_pos)
+      left(1);
+    while (position < new_pos)
+      right(1);
+  } else {
+    if (display_message) {
+      ee_wmove(com_win, 0, 0);
+      ee_wclrtoeol(com_win);
+      ee_wprintw(com_win, str_not_found_msg, srch_str);
+      ee_wrefresh(com_win);
+    }
+    ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
+  }
+  return found;
+}
 
 /* delete current character	*/
+void del_char() {
+  in = 8;                                /* backspace */
+  if (position < curr_line->line_length) /* if not end of line	*/
+  {
+#ifdef HAS_ICU
+    if (ee_chinese) {
+      int32_t i = 0;
+      UChar32 c;
+      U8_NEXT(point, i, curr_line->line_length - position + 1, c);
+      point += i;
+      position += i;
+    } else {
+      position++;
+      point++;
+    }
+#else
+    if (ee_chinese && (*point > 127) &&
+        ((curr_line->line_length - position) >= 2)) {
+      point++;
+      position++;
+    }
+    position++;
+    point++;
+#endif
+    scanline(point);
+    delete_char_at_cursor(1);
+  } else {
+    right(1);
+    delete_char_at_cursor(1);
+  }
+}
 
 /* undelete last deleted character	*/
+void undel_char() {
+  if (d_char[0] == '\n') {
+    { /* insert line if last del_char deleted eol */
+      insert_line(1);
+    }
+  } else {
+    in = d_char[0];
+    insert(in);
+    if (d_char[1] != '\0') {
+      in = d_char[1];
+      insert(in);
+    }
+  }
+}
 
 /* delete word in front of cursor	*/
+void del_word() {
+  int tposit;
+  int difference;
+  unsigned char *d_word2;
+  unsigned char *d_word3;
+  unsigned char tmp_char[3];
+
+  if (d_word != nullptr) {
+    free(d_word);
+  }
+  d_word = malloc(curr_line->line_length);
+  tmp_char[0] = d_char[0];
+  tmp_char[1] = d_char[1];
+  tmp_char[2] = d_char[2];
+  d_word3 = point;
+  d_word2 = d_word;
+  tposit = position;
+  while ((tposit < curr_line->line_length) &&
+         ((*d_word3 != ' ') && (*d_word3 != '\t'))) {
+    tposit++;
+    *d_word2 = *d_word3;
+    d_word2++;
+    d_word3++;
+  }
+  while ((tposit < curr_line->line_length) &&
+         ((*d_word3 == ' ') || (*d_word3 == '\t'))) {
+    tposit++;
+    *d_word2 = *d_word3;
+    d_word2++;
+    d_word3++;
+  }
+  *d_word2 = '\0';
+  d_wrd_len = difference = d_word2 - d_word;
+  d_word2 = point;
+  while (tposit < curr_line->line_length) {
+    tposit++;
+    *d_word2 = *d_word3;
+    d_word2++;
+    d_word3++;
+  }
+  curr_line->line_length -= difference;
+  *d_word2 = '\0';
+  draw_line(scr_vert, scr_horz, curr_line, position);
+  d_char[0] = tmp_char[0];
+  d_char[1] = tmp_char[1];
+  d_char[2] = tmp_char[2];
+  text_changes = true;
+  formatted = false;
+}
 
 /* undelete last deleted word		*/
+void undel_word() {
+  int temp;
+  int tposit;
+  unsigned char *tmp_old_ptr;
+  unsigned char *tmp_space;
+  unsigned char *tmp_ptr;
+  unsigned char *d_word_ptr;
+
+  /*
+   |	resize line to handle undeleted word
+   */
+  if ((curr_line->max_length - (curr_line->line_length + d_wrd_len)) < 5) {
+    point = resiz_line(d_wrd_len, curr_line, position);
+  }
+  tmp_ptr = tmp_space = malloc(curr_line->line_length + d_wrd_len);
+  d_word_ptr = d_word;
+  temp = 1;
+  /*
+   |	copy d_word contents into temp space
+   */
+  while (temp <= d_wrd_len) {
+    temp++;
+    *tmp_ptr = *d_word_ptr;
+    tmp_ptr++;
+    d_word_ptr++;
+  }
+  tmp_old_ptr = point;
+  tposit = position;
+  /*
+   |	copy contents of line from curent position to eol into
+   |	temp space
+   */
+  while (tposit < curr_line->line_length) {
+    temp++;
+    tposit++;
+    *tmp_ptr = *tmp_old_ptr;
+    tmp_ptr++;
+    tmp_old_ptr++;
+  }
+  curr_line->line_length += d_wrd_len;
+  tmp_old_ptr = point;
+  *tmp_ptr = '\0';
+  tmp_ptr = tmp_space;
+  tposit = 1;
+  /*
+   |	now copy contents from temp space back to original line
+   */
+  while (tposit < temp) {
+    tposit++;
+    *tmp_old_ptr = *tmp_ptr;
+    tmp_ptr++;
+    tmp_old_ptr++;
+  }
+  *tmp_old_ptr = '\0';
+  free(tmp_space);
+  draw_line(scr_vert, scr_horz, curr_line, position);
+}
 
 /* delete from cursor to end of line	*/
+void del_line() {
+  if (d_line != nullptr) {
+    free(d_line);
+  }
+  d_line = malloc(curr_line->line_length);
+  size_t copy_len = curr_line->line_length - position;
+  memcpy(d_line, point, copy_len);
+  d_line[copy_len] = '\0';
+  dlt_line->line_length = 1 + copy_len;
+  *point = '\0';
+  curr_line->line_length = position;
+  ee_wclrtoeol(text_win);
+  if (curr_line->next_line != nullptr) {
+    right(0);
+    delete_char_at_cursor(0);
+  }
+  text_changes = true;
+}
 
 /* undelete last deleted line		*/
+void undel_line() {
+  unsigned char *ud1;
+  unsigned char *ud2;
+  int tposit;
+
+  if (dlt_line->line_length == 0) {
+    return;
+  }
+
+  insert_line(1);
+  left(1);
+  point = resiz_line(dlt_line->line_length, curr_line, position);
+  curr_line->line_length += dlt_line->line_length - 1;
+  ud1 = point;
+  ud2 = d_line;
+  tposit = 1;
+  while (tposit < dlt_line->line_length) {
+    tposit++;
+    *ud1 = *ud2;
+    ud1++;
+    ud2++;
+  }
+  *ud1 = '\0';
+  draw_line(scr_vert, scr_horz, curr_line, position);
+}
 
 /* advance to next word		*/
 void adv_word() {
@@ -2682,8 +4099,202 @@ void adv_line() {
   }
 }
 
+static void calc_abs_line() {
+  struct text const *tmpline = first_line;
+  int x = 1;
+
+  while ((tmpline != nullptr) && (tmpline != curr_line)) {
+    x++;
+    tmpline = tmpline->next_line;
+  }
+  absolute_lin = x;
+}
 
 /* execute shell command			*/
+void sh_command(const char *string) {
+  char *temp_point;
+  char *last_slash;
+  char *path; /* directory path to executable		*/
+  int parent; /* zero if child, child's pid if parent	*/
+  int value;
+  int return_val;
+  struct text *line_holder;
+
+  if (restrict_mode()) {
+    return;
+  }
+
+  if ((path = getenv("SHELL")) == nullptr) {
+    path = "/bin/sh";
+  }
+  last_slash = temp_point = path;
+  while (*temp_point != '\0') {
+    if (*temp_point == '/') {
+      last_slash = ++temp_point;
+    } else {
+      temp_point++;
+    }
+  }
+
+  /*
+   |	if in_pipe is true, then output of the shell operation will be
+   |	read by the editor, and curses doesn't need to be turned off
+   */
+
+  if (!in_pipe) {
+    ee_keypad(com_win, false);
+    ee_keypad(text_win, false);
+    echo();
+    nl();
+    noraw();
+    resetty();
+
+#ifndef NCURSE
+    if(!profiling_mode) endwin();
+#endif
+  }
+
+  if (in_pipe) {
+    pipe2(pipe_in, O_CLOEXEC); /* create a pipe	*/
+    parent = fork();
+    if (parent == 0) /* if the child		*/
+    {
+      /*
+       |  child process which will fork and exec shell command (if shell output
+       is |  to be read by editor)
+       */
+      in_pipe = false;
+      /*
+       |  redirect stdout to pipe
+       */
+      temp_stdout = fcntl(1, F_DUPFD_CLOEXEC);
+      close(1);
+      fcntl(pipe_in[1], F_DUPFD_CLOEXEC);
+      /*
+       |  redirect stderr to pipe
+       */
+      temp_stderr = fcntl(2, F_DUPFD_CLOEXEC);
+      close(2);
+      fcntl(pipe_in[1], F_DUPFD_CLOEXEC);
+      close(pipe_in[1]);
+      /*
+       |	child will now continue down 'if (!in_pipe)'
+       |	path below
+       */
+    } else /* if the parent	*/
+    {
+      /*
+       |  prepare editor to read from the pipe
+       */
+      signal(SIGCHLD, SIG_IGN);
+      line_holder = curr_line;
+      tmp_vert = scr_vert;
+      close(pipe_in[1]);
+      get_fd = pipe_in[0];
+      get_file("");
+      close(pipe_in[0]);
+      scr_vert = tmp_vert;
+      scr_horz = scr_pos = 0;
+      position = 1;
+      curr_line = line_holder;
+      calc_abs_line();
+      point = curr_line->line;
+      out_pipe = false;
+      signal(SIGCHLD, SIG_DFL);
+      /*
+       |  since flag "in_pipe" is still true, the path which waits for the child
+       |  process to die will be avoided.
+       |  (the pipe is closed, no more output can be expected)
+       */
+    }
+  }
+  if (!in_pipe) {
+    signal(SIGINT, SIG_IGN);
+    if (out_pipe) {
+      pipe2(pipe_out, O_CLOEXEC);
+    }
+    /*
+     |  fork process which will exec command
+     */
+    parent = fork();
+    if (parent == 0) /* if the child	*/
+    {
+      if (shell_fork != 0) {
+        putchar('\n');
+      }
+      if (out_pipe) {
+        /*
+         |  prepare the child process (soon to exec a shell command) to read
+         from the |  pipe (which will be output from the editor's buffer)
+         */
+        close(0);
+        fcntl(pipe_out[0], F_DUPFD_CLOEXEC);
+        close(pipe_out[0]);
+        close(pipe_out[1]);
+      }
+      for (value = 1; value < 24; value++) {
+        signal(value, SIG_DFL);
+      }
+      execl(path, last_slash, "-c", string, nullptr);
+      fprintf(stderr, exec_err_msg, path);
+      exit(-1);
+    } else /* if the parent	*/
+    {
+      if (out_pipe) {
+        /*
+         |  output the contents of the buffer to the pipe (to be read by the
+         |  process forked and exec'd above as stdin)
+         */
+        close(pipe_out[0]);
+        line_holder = first_line;
+        while (line_holder != nullptr) {
+          write(pipe_out[1], line_holder->line, (line_holder->line_length - 1));
+          write(pipe_out[1], "\n", 1);
+          line_holder = line_holder->next_line;
+        }
+        close(pipe_out[1]);
+        out_pipe = false;
+      }
+      do {
+        return_val = wait((int *)nullptr);
+      } while ((return_val != parent) && (return_val != -1));
+      /*
+       |  if this process is actually the child of the editor, exit.  Here's how
+       it |  works: |  The editor forks a process.  If output must be sent to
+       the command to be |  exec'd another process is forked, and that process
+       (the child's child) |  will exec the command.  In this case, "shell_fork"
+       will be false.  If no |  output is to be performed to the shell command,
+       "shell_fork" will be true. |  If this is the editor process, shell_fork
+       will be true, otherwise this is |  the child of the edit process.
+       */
+      if (shell_fork == 0) {
+        exit(0);
+      }
+    }
+    signal(SIGINT, edit_abort);
+  }
+  if (shell_fork != 0) {
+    fputs(continue_msg, stdout);
+    fflush(stdout);
+    while ((in = getchar()) != '\n') {
+      ;
+    }
+  }
+
+  if (!in_pipe) {
+    fixterm();
+    if(!profiling_mode) noecho();
+    if(!profiling_mode) nonl();
+    if(!profiling_mode) raw();
+    ee_keypad(text_win, true);
+    ee_keypad(com_win, true);
+    if (info_window) {
+      if(!profiling_mode) clearok(info_win, true);
+    }
+  }
+
+  redraw();
+}
 
 /* set up the terminal for operating with ae	*/
 void set_up_term() {
@@ -2751,9 +4362,295 @@ void resize_check() {
 char item_alpha[] = "abcdefghijklmnopqrstuvwxyz0123456789 ";
 
 #ifdef HAS_MENU
+int menu_op(struct menu_entries menu_list[]) {
+  WINDOW *temp_win;
+  int max_width;
+  int max_height;
+  int x_off;
+  int y_off;
+  int counter;
+  int length;
+  int input;
+  int temp;
+  int list_size;
+  int top_offset;    /* offset from top where menu items start */
+  int vert_size;     /* vertical size for menu list item display */
+  int off_start = 1; /* offset from start of menu items to start display */
+
+  /*
+   |      determine number and width of menu items
+   */
+
+  list_size = 1;
+  while (menu_list[list_size + 1].item_string != nullptr) {
+    list_size++;
+  }
+  max_width = 0;
+  for (counter = 0; counter <= list_size; counter++) {
+    if ((length = strlen(menu_list[counter].item_string)) > max_width) {
+      max_width = length;
+    }
+  }
+  max_width += 3;
+  max_width = max(max_width, (int)strlen(menu_cancel_msg));
+  max_width = max(
+      max_width, max((int)strlen(more_above_str), (int)strlen(more_below_str)));
+  max_width += 6;
+
+  /*
+   |      make sure that window is large enough to handle menu
+   |      if not, print error message and return to calling function
+   */
+
+  if (max_width > COLS) {
+    ee_wmove(com_win, 0, 0);
+    ee_werase(com_win);
+    ee_wprintw(com_win, "%s", menu_too_lrg_msg);
+    ee_wrefresh(com_win);
+    clear_com_win = true;
+    return 0;
+  }
+
+  top_offset = 0;
+
+  if (list_size > LINES) {
+    max_height = LINES;
+    if (max_height > 11) {
+      vert_size = max_height - 8;
+    } else {
+      vert_size = max_height;
+    }
+  } else {
+    vert_size = list_size;
+    max_height = list_size;
+  }
+
+  if (LINES >= (vert_size + 8)) {
+    if (menu_list[0].value != MENU_WARN) {
+      max_height = vert_size + 8;
+    } else {
+      max_height = vert_size + 7;
+    }
+    top_offset = 4;
+  }
+  x_off = (COLS - max_width) / 2;
+  y_off = (LINES - max_height - 1) / 2;
+  temp_win = profiling_mode ? nullptr : newwin(max_height, max_width, y_off, x_off);
+  ee_keypad(temp_win, true);
+
+  paint_menu(menu_list, max_width, max_height, list_size, top_offset, temp_win,
+             off_start, vert_size);
+
+  counter = 1;
+
+  do {
+    if (off_start > 2) {
+      ee_wmove(temp_win, (1 + counter + top_offset - off_start), 3);
+    } else {
+      ee_wmove(temp_win, (counter + top_offset - off_start), 3);
+    }
+
+    ee_wrefresh(temp_win);
+    in = wgetch(temp_win);
+    input = in;
+    if (input == -1) {
+      edit_abort(0);
+    }
+
+    if ((isascii(input) != 0) && (isalnum(input) != 0)) {
+      if (isalpha(input) != 0) {
+        temp = 1 + tolower(input) - 'a';
+      } else if (isdigit(input) != 0) {
+        temp = (2 + 'z' - 'a') + (input - '0');
+      }
+
+      if (temp <= list_size) {
+        input = '\n';
+        counter = temp;
+      }
+    } else {
+      switch (input) {
+      case ' ':    /* space	*/
+      case '\004': /* ^d, down	*/
+      case KEY_RIGHT:
+      case KEY_DOWN:
+        counter++;
+        if (counter > list_size) {
+          counter = 1;
+        }
+        break;
+      case '\010': /* ^h, backspace*/
+      case '\025': /* ^u, up	*/
+      case 127:    /* ^?, delete	*/
+      case KEY_BACKSPACE:
+      case KEY_LEFT:
+      case KEY_UP:
+        counter--;
+        if (counter == 0) {
+          counter = list_size;
+        }
+        break;
+      case '\033': /* escape key	*/
+        if (menu_list[0].value != MENU_WARN) {
+          counter = 0;
+        }
+        break;
+      case '\014': /* ^l       	*/
+      case '\022': /* ^r, redraw	*/
+        paint_menu(menu_list, max_width, max_height, list_size, top_offset,
+                   temp_win, off_start, vert_size);
+        break;
+      default:
+        break;
+      }
+    }
+
+    if (((list_size - off_start) >= (vert_size - 1)) &&
+        (counter > (off_start + vert_size - 3)) && (off_start > 1)) {
+      if (counter == list_size) {
+        off_start = (list_size - vert_size) + 2;
+      } else {
+        off_start++;
+      }
+
+      paint_menu(menu_list, max_width, max_height, list_size, top_offset,
+                 temp_win, off_start, vert_size);
+    } else if ((list_size != vert_size) &&
+               (counter > (off_start + vert_size - 2))) {
+      if (counter == list_size) {
+        off_start = 2 + (list_size - vert_size);
+      } else if (off_start == 1) {
+        off_start = 3;
+      } else {
+        off_start++;
+      }
+
+      paint_menu(menu_list, max_width, max_height, list_size, top_offset,
+                 temp_win, off_start, vert_size);
+    } else if (counter < off_start) {
+      if (counter <= 2) {
+        off_start = 1;
+      } else {
+        off_start = counter;
+      }
+
+      paint_menu(menu_list, max_width, max_height, list_size, top_offset,
+                 temp_win, off_start, vert_size);
+    }
+  } while ((input != '\r') && (input != '\n') && (counter != 0));
+
+  ee_werase(temp_win);
+  ee_wrefresh(temp_win);
+  delwin(temp_win);
+
+  if (counter > 0 && ((menu_list[counter].procedure != nullptr) ||
+      (menu_list[counter].procedure2 != nullptr) ||
+      (menu_list[counter].procedure3 != nullptr))) {
+    if (menu_list[counter].value != -1) {
+      (*menu_list[counter].procedure2)(menu_list[counter].value);
+    } else if (menu_list[counter].ptr_menu != nullptr) {
+      (*menu_list[counter].procedure)(menu_list[counter].ptr_menu);
+    } else {
+      (*menu_list[counter].procedure3)();
+    }
+  }
+
+  if (info_window) {
+    paint_info_win();
+  }
+  redraw();
+
+  return counter;
+}
 #endif
 
 #ifdef HAS_MENU
+void paint_menu(struct menu_entries menu_list[], int max_width,
+                       int max_height, int list_size, int top_offset,
+                       WINDOW *menu_win, int off_start, int vert_size) {
+  int counter;
+  int temp_int;
+
+  ee_werase(menu_win);
+
+  /*
+   |	output top and bottom portions of menu box only if window
+   |	large enough
+   */
+
+  if (max_height > vert_size) {
+    ee_wmove(menu_win, 1, 1);
+    if (!nohighlight) {
+      wstandout(menu_win);
+    }
+    ee_waddch(menu_win, '+');
+    for (counter = 0; counter < (max_width - 4); counter++) {
+      ee_waddch(menu_win, '-');
+    }
+    ee_waddch(menu_win, '+');
+
+    ee_wmove(menu_win, (max_height - 2), 1);
+    ee_waddch(menu_win, '+');
+    for (counter = 0; counter < (max_width - 4); counter++) {
+      ee_waddch(menu_win, '-');
+    }
+    ee_waddch(menu_win, '+');
+    wstandend(menu_win);
+    ee_wmove(menu_win, 2, 3);
+    ee_waddstr(menu_win, menu_list[0].item_string);
+    ee_wmove(menu_win, (max_height - 3), 3);
+    if (menu_list[0].value != MENU_WARN) {
+      ee_waddstr(menu_win, menu_cancel_msg);
+    }
+  }
+  if (!nohighlight) {
+    wstandout(menu_win);
+  }
+
+  for (counter = 0; counter < (vert_size + top_offset); counter++) {
+    if (top_offset == 4) {
+      temp_int = counter + 2;
+    } else {
+      {
+        temp_int = counter;
+      }
+    }
+
+    ee_wmove(menu_win, temp_int, 1);
+    ee_waddch(menu_win, '|');
+    ee_wmove(menu_win, temp_int, (max_width - 2));
+    ee_waddch(menu_win, '|');
+  }
+  wstandend(menu_win);
+
+  if (list_size > vert_size) {
+    for (counter = off_start; counter < (off_start + vert_size); counter++) {
+      ee_wmove(menu_win, (top_offset + counter - off_start), 3);
+      if (list_size > 1) {
+        ee_wprintw(menu_win, "%c) ",
+                item_alpha[min((counter - 1), MAX_ALPHA_CHAR)]);
+      }
+      ee_waddstr(menu_win, menu_list[counter].item_string);
+      if (off_start > 1) {
+        ee_wmove(menu_win, top_offset, (max_width - 12));
+        ee_wprintw(menu_win, "%s", more_above_str);
+      }
+      if ((off_start + vert_size - 1) < list_size) {
+        ee_wmove(menu_win, (top_offset + vert_size - 1), (max_width - 12));
+        ee_wprintw(menu_win, "%s", more_below_str);
+      }
+    }
+  } else {
+    for (counter = 1; counter <= list_size; counter++) {
+      ee_wmove(menu_win, (top_offset + counter - 1), 3);
+      if (list_size > 1) {
+        ee_wprintw(menu_win, "%c) ",
+                item_alpha[min((counter - 1), MAX_ALPHA_CHAR)]);
+      }
+      ee_waddstr(menu_win, menu_list[counter].item_string);
+    }
+  }
+}
 #endif
 #ifdef HAS_HELP
 #ifdef HAS_HELP
@@ -3026,7 +4923,7 @@ int file_op(int arg) {
   return 0;
 }
 
-void shell_op() {
+static void shell_op() {
   char *string;
 
   if (((string = get_string(shell_prompt, 1)) != nullptr) &&
@@ -3064,8 +4961,243 @@ void redraw() {
  */
 
 /* test if line has any non-space characters	*/
+bool Blank_Line(struct text *test_line) {
+  if (test_line == nullptr) {
+    return true;
+  }
+
+  unsigned char c = *test_line->line;
+  bool is_special = (c == '.') | (c == '>');
+  size_t skip = strspn((char *)test_line->line, " \t");
+  bool is_all_whitespace = (skip + 1) >= test_line->line_length;
+
+  return is_special | is_all_whitespace;
+}
 
 /* format the paragraph according to set margins	*/
+void Format() {
+  int string_count;
+  int offset;
+  int temp_case;
+  int status;
+  int tmp_af;
+  int counter;
+  unsigned char *line;
+  unsigned char *tmp_srchstr;
+  unsigned char *temp1;
+  unsigned char *temp2;
+  unsigned char *temp_dword;
+  unsigned char temp_d_char[8];
+
+  memcpy(temp_d_char, d_char, 8);
+
+  /*
+   |	if observ_margins is not set, or the current line is blank,
+   |	do not format the current paragraph
+   */
+
+  if ((!observ_margins) || (Blank_Line(curr_line))) {
+    return;
+  }
+
+  /*
+   |	save the currently set flags, and clear them
+   */
+
+  ee_wmove(com_win, 0, 0);
+  ee_wclrtoeol(com_win);
+  ee_wprintw(com_win, "%s", formatting_msg);
+  ee_wrefresh(com_win);
+
+  /*
+   |	get current position in paragraph, so after formatting, the cursor
+   |	will be in the same relative position
+   */
+
+  tmp_af = (int)auto_format;
+  auto_format = false;
+  offset = position;
+  if (position != 1) {
+    prev_word();
+  }
+  temp_dword = d_word;
+  d_word = nullptr;
+  temp_case = (int)case_sen;
+  case_sen = true;
+  tmp_srchstr = srch_str;
+  temp2 = srch_str =
+      (unsigned char *)malloc(1 + curr_line->line_length - position);
+  if ((*point == ' ') || (*point == '\t')) {
+    adv_word();
+  }
+  offset -= position;
+  counter = position;
+  line = temp1 = point;
+  while ((*temp1 != '\0') && (*temp1 != ' ') && (*temp1 != '\t') &&
+         (counter < curr_line->line_length)) {
+    *temp2 = *temp1;
+    temp2++;
+    temp1++;
+    counter++;
+  }
+  *temp2 = '\0';
+  if (position != 1) {
+    bol();
+  }
+  while (!Blank_Line(curr_line->prev_line)) {
+    bol();
+  }
+  string_count = 0;
+  status = 1;
+  while ((line != point) && (status != 0)) {
+    status = search(0);
+    string_count++;
+  }
+
+  ee_wmove(com_win, 0, 0);
+  ee_wclrtoeol(com_win);
+  ee_wprintw(com_win, "%s", formatting_msg);
+  ee_wrefresh(com_win);
+
+  /*
+   |	now get back to the start of the paragraph to start formatting
+   */
+
+  if (position != 1) {
+    bol();
+  }
+  while (!Blank_Line(curr_line->prev_line)) {
+    bol();
+  }
+
+  observ_margins = false;
+
+  /*
+   |	Start going through lines, putting spaces at end of lines if they do
+   |	not already exist.  Append lines together to get one long line, and
+   |	eliminate spacing at begin of lines.
+   */
+
+  while (!Blank_Line(curr_line->next_line)) {
+    eol();
+    left(1);
+    if (*point != ' ') {
+      right(1);
+      insert(' ');
+    } else {
+      {
+        right(1);
+      }
+    }
+    del_char();
+    if ((*point == ' ') || (*point == '\t')) {
+      del_word();
+    }
+  }
+
+  /*
+   |	Now there is one long line.  Eliminate extra spaces within the line
+   |	after the first word (so as not to blow away any indenting the user
+   |	may have put in).
+   */
+
+  bol();
+  adv_word();
+  while (position < curr_line->line_length) {
+    if ((*point == ' ') && (*(point + 1) == ' ')) {
+      del_char();
+    } else {
+      right(1);
+    }
+  }
+
+  /*
+   |	Now make sure there are two spaces after a '.'.
+   */
+
+  bol();
+  while (position < curr_line->line_length) {
+    if ((*point == '.') && (*(point + 1) == ' ')) {
+      right(1);
+      insert(' ');
+      insert(' ');
+      while (*point == ' ') {
+        del_char();
+      }
+    }
+    right(1);
+  }
+
+  observ_margins = true;
+  bol();
+
+  ee_wmove(com_win, 0, 0);
+  ee_wclrtoeol(com_win);
+  ee_wprintw(com_win, "%s", formatting_msg);
+  ee_wrefresh(com_win);
+
+  /*
+   |	create lines between margins
+   */
+
+  while (position < curr_line->line_length) {
+    while ((scr_pos < right_margin) && (position < curr_line->line_length)) {
+      right(1);
+    }
+    if (position < curr_line->line_length) {
+      prev_word();
+      if (position == 1) {
+        adv_word();
+      }
+      insert_line(1);
+    }
+  }
+
+  /*
+   |	go back to begin of paragraph, put cursor back to original position
+   */
+
+  bol();
+  while (!Blank_Line(curr_line->prev_line)) {
+    bol();
+  }
+
+  /*
+   |	find word cursor was in
+   */
+
+  while ((status != 0) && (string_count > 0)) {
+    search(0);
+    string_count--;
+  }
+
+  /*
+   |	offset the cursor to where it was before from the start of the word
+   */
+
+  while (offset > 0) {
+    offset--;
+    right(1);
+  }
+
+  /*
+   |	reset flags and strings to what they were before formatting
+   */
+
+  if (d_word != nullptr) {
+    free(d_word);
+  }
+  d_word = temp_dword;
+  case_sen = (temp_case != 0);
+  free(srch_str);
+  srch_str = tmp_srchstr;
+  memcpy(d_char, temp_d_char, 8);
+  auto_format = (tmp_af != 0);
+
+  midscreen(scr_vert, point);
+  ee_werase(com_win);
+  ee_wrefresh(com_win);
+}
 
 static char *init_name[3] = {"/usr/share/misc/init.ee", nullptr, ".init.ee"};
 
@@ -3228,43 +5360,6 @@ void ee_init() {
   free(string);
   free(home);
 
-  {
-    char yaml_path[512];
-    const char *yh = getenv("HOME");
-    if (!yh) yh = "/tmp";
-    snprintf(yaml_path, sizeof(yaml_path), "%s/.config/ee/config.yaml", yh);
-    FILE *yf = fopen(yaml_path, "r");
-    if (yf) {
-      char yline[512];
-      while (fgets(yline, sizeof(yline), yf)) {
-        char *ye = yline + strlen(yline);
-        while (ye > yline && (ye[-1] == '\n' || ye[-1] == '\r' || ye[-1] == ' ' || ye[-1] == '\t')) ye--;
-        *ye = '\0';
-        if (yline[0] == '\0' || yline[0] == '#') continue;
-        char *yc = strstr(yline, ": ");
-        if (!yc) continue;
-        *yc = '\0';
-        char *yk = yline;
-        char *yv = yc + 2;
-        if (strcmp(yk, "case") == 0) case_sen = strcmp(yv, "true") == 0;
-        else if (strcmp(yk, "expand") == 0) expand_tabs = strcmp(yv, "true") == 0;
-        else if (strcmp(yk, "info") == 0) { info_window = strcmp(yv, "true") == 0; resize_info_win(); }
-        else if (strcmp(yk, "margins") == 0) observ_margins = strcmp(yv, "true") == 0;
-        else if (strcmp(yk, "autoformat") == 0) { auto_format = strcmp(yv, "true") == 0; if (auto_format) observ_margins = true; }
-        else if (strcmp(yk, "printcommand") == 0 && yv[0]) { size_t cl = strlen(yv) + 1; print_command = malloc(cl); snprintf(print_command, cl, "%s", yv); }
-        else if (strcmp(yk, "rightmargin") == 0) { int ti = atoi(yv); if (ti > 0) right_margin = ti; }
-        else if (strcmp(yk, "highlight") == 0) nohighlight = strcmp(yv, "false") == 0;
-        else if (strcmp(yk, "eightbit") == 0) eightbit = strcmp(yv, "true") == 0;
-        else if (strcmp(yk, "emacs") == 0) { emacs_keys_mode = strcmp(yv, "true") == 0; update_libedit_mode(); }
-        else if (strcmp(yk, "theme") == 0 && yv[0]) { snprintf(theme_name, sizeof(theme_name), "%s", yv); }
-        else if (strncmp(yk, "bind(", 5) == 0) { char *cp = yk + 5; char *cl = strchr(cp, ')'); if (cl) { *cl = '\0'; bind_key(cp, yv, 0); } }
-        else if (strncmp(yk, "gbind(", 6) == 0) { char *cp = yk + 6; char *cl = strchr(cp, ')'); if (cl) { *cl = '\0'; bind_key(cp, yv, 1); } }
-        else if (strncmp(yk, "ebind(", 6) == 0) { char *cp = yk + 6; char *cl = strchr(cp, ')'); if (cl) { *cl = '\0'; bind_key(cp, yv, 2); } }
-      }
-      fclose(yf);
-    }
-  }
-
   string = getenv("LANG");
   if (string != nullptr) {
     if (strcmp(string, "zh_TW.big5") == 0) {
@@ -3297,71 +5392,120 @@ void ee_init() {
  |	Save current configuration to .init.ee file in the current directory.
  */
 
-static void config_path(char *buf, size_t size) {
-  const char *home = getenv("HOME");
-  if (!home) home = "/tmp";
-  snprintf(buf, size, "%s/.config/ee/config.yaml", home);
-}
+void dump_ee_conf() {
+  FILE *init_file;
+  FILE *old_init_file = nullptr;
+  char *file_name = ".init.ee";
+  char const *home_dir = "~/.init.ee";
+  char buffer[512];
+  struct stat buf;
+  char *string;
+  int length;
+  int option = 0;
 
-static void ensure_config_dir(void) {
-  const char *home = getenv("HOME");
-  if (!home) return;
-  char dir[512];
-  snprintf(dir, sizeof(dir), "%s/.config", home);
-  mkdir(dir, 0755);
-  snprintf(dir, sizeof(dir), "%s/.config/ee", home);
-  mkdir(dir, 0755);
-}
+  if (restrict_mode()) {
+    return;
+  }
 
-void dump_ee_conf(void) {
-  if (restrict_mode()) return;
+  option = menu_op(config_dump_menu);
 
-  ensure_config_dir();
+  ee_werase(com_win);
+  ee_wmove(com_win, 0, 0);
 
-  char path[512];
-  config_path(path, sizeof(path));
+  if (option == 0) {
+    ee_wprintw(com_win, "%s", conf_not_saved_msg);
+    ee_wrefresh(com_win);
+    return;
+  }
+  if (option == 2) {
+    file_name = resolve_name(home_dir);
+  }
 
-  FILE *f = fopen(path, "we");
-  if (!f) {
-    ee_werase(com_win);
-    ee_wmove(com_win, 0, 0);
+  /*
+   |	If a .init.ee file exists, move it to .init.ee.old.
+   */
+
+  if (stat(file_name, &buf) != -1) {
+    sprintf(buffer, "%s.old", file_name);
+    unlink(buffer);
+    link(file_name, buffer);
+    unlink(file_name);
+    old_init_file = fopen(buffer, "re");
+  }
+
+  init_file = fopen(file_name, "we");
+  if (init_file == nullptr) {
     ee_wprintw(com_win, "%s", conf_dump_err_msg);
     ee_wrefresh(com_win);
     return;
   }
 
-  fprintf(f, "# ee configuration\n");
-  fprintf(f, "case: %s\n", case_sen ? "true" : "false");
-  fprintf(f, "expand: %s\n", expand_tabs ? "true" : "false");
-  fprintf(f, "info: %s\n", info_window ? "true" : "false");
-  fprintf(f, "margins: %s\n", observ_margins ? "true" : "false");
-  fprintf(f, "autoformat: %s\n", auto_format ? "true" : "false");
-  fprintf(f, "printcommand: %s\n", print_command ? print_command : "lpr");
-  fprintf(f, "rightmargin: %d\n", right_margin);
-  fprintf(f, "highlight: %s\n", nohighlight ? "false" : "true");
-  fprintf(f, "eightbit: %s\n", eightbit ? "true" : "false");
-  fprintf(f, "emacs: %s\n", emacs_keys_mode ? "true" : "false");
-  fprintf(f, "theme: %s\n", theme_name[0] ? theme_name : "default");
+  if (old_init_file != nullptr) {
+    /*
+     |	Copy non-configuration info into new .init.ee file.
+     */
+    while ((string = fgets(buffer, 512, old_init_file)) != nullptr) {
+      length = strlen(string);
+      string[length - 1] = '\0';
 
+      if (unique_test(string, init_strings) == 1) {
+        if (compare(string, Echo, false)) {
+          fprintf(init_file, "%s\n", string);
+        }
+      } else {
+        {
+          fprintf(init_file, "%s\n", string);
+        }
+      }
+    }
+
+    fclose(old_init_file);
+  }
+
+  fprintf(init_file, "%s\n", (((int)case_sen) != 0) ? CASE : NOCASE);
+  fprintf(init_file, "%s\n", (((int)expand_tabs) != 0) ? EXPAND : NOEXPAND);
+  fprintf(init_file, "%s\n", (((int)info_window) != 0) ? INFO : NOINFO);
+  fprintf(init_file, "%s\n",
+          (((int)observ_margins) != 0) ? MARGINS : NOMARGINS);
+  fprintf(init_file, "%s\n",
+          (((int)auto_format) != 0) ? AUTOFORMAT : NOAUTOFORMAT);
+  fprintf(init_file, "%s %s\n", PRINTCOMMAND, print_command);
+  fprintf(init_file, "%s %d\n", RIGHTMARGIN, right_margin);
+  fprintf(init_file, "%s\n",
+          (((int)nohighlight) != 0) ? NOHIGHLIGHT : HIGHLIGHT);
+  fprintf(init_file, "%s\n", (((int)eightbit) != 0) ? EIGHTBIT : NOEIGHTBIT);
+  fprintf(init_file, "%s\n",
+          (((int)emacs_keys_mode) != 0) ? EMACS_string : NOEMACS_string);
+  fprintf(init_file, "%s\n",
+          (((int)ee_chinese) != 0) ? chinese_cmd : nochinese_cmd);
+
+  // Dump key bindings
   for (int t = 0; t < 3; t++) {
-    control_handler *tbl = t == 0 ? base_control_table : (t == 1 ? gold_control_table : emacs_control_table);
-    const char *prefix = t == 0 ? "bind" : (t == 1 ? "gbind" : "ebind");
+    control_handler *tbl = (t == 0) ? base_control_table : (t == 1 ? gold_control_table : emacs_control_table);
+    const char *cmd = (t == 0) ? BIND : (t == 1 ? GBIND : EBIND);
     for (int i = 0; i < 1024; i++) {
       if (tbl[i] == no_op) continue;
       const char *cmd_name = nullptr;
-      for (int j = 0; commands_table[j].name; j++) {
-        if (commands_table[j].handler == tbl[i]) { cmd_name = commands_table[j].name; break; }
+      for (int j = 0; commands_table[j].name != nullptr; j++) {
+        if (commands_table[j].handler == tbl[i]) {
+          cmd_name = commands_table[j].name;
+          break;
+        }
       }
-      if (cmd_name) fprintf(f, "%s(%s): %s\n", prefix, get_key_name(i), cmd_name);
+      if (cmd_name != nullptr) {
+        fprintf(init_file, "%s %s %s\n", cmd, get_key_name(i), cmd_name);
+      }
     }
   }
 
-  fclose(f);
+  fclose(init_file);
 
-  ee_werase(com_win);
-  ee_wmove(com_win, 0, 0);
-  ee_wprintw(com_win, conf_dump_success_msg, path);
+  ee_wprintw(com_win, conf_dump_success_msg, file_name);
   ee_wrefresh(com_win);
+
+  if ((option == 2) && (file_name != home_dir)) {
+    free(file_name);
+  }
 }
 
 /* echo the given string	*/
@@ -3507,7 +5651,379 @@ int from_top(struct text *test_line) {
 }
 
 /* format the paragraph according to set margins	*/
+void Auto_Format() {
+  int string_count;
+  int offset;
+  int temp_case;
+  int word_len;
+  int temp_dwl;
+  int tmp_d_line_length;
+  int leave_loop = 0;
+  int status;
+  int counter;
+  char not_blank;
+  unsigned char *line;
+  unsigned char *tmp_srchstr;
+  unsigned char *temp1;
+  unsigned char *temp2;
+  unsigned char *temp_dword;
+  unsigned char temp_d_char[8];
+  unsigned char *tmp_d_line;
 
+  memcpy(temp_d_char, d_char, 8);
+
+  /*
+   |	if observ_margins is not set, or the current line is blank,
+   |	do not format the current paragraph
+   */
+
+  if ((!observ_margins) || (Blank_Line(curr_line))) {
+    return;
+  }
+
+  /*
+   |	get current position in paragraph, so after formatting, the cursor
+   |	will be in the same relative position
+   */
+
+  tmp_d_line = d_line;
+  tmp_d_line_length = dlt_line->line_length;
+  d_line = nullptr;
+  auto_format = false;
+  offset = position;
+  if ((position != 1) &&
+      ((*point == ' ') || (*point == '\t') ||
+       (position == curr_line->line_length) || (*point == '\0'))) {
+    prev_word();
+  }
+  temp_dword = d_word;
+  temp_dwl = d_wrd_len;
+  d_wrd_len = 0;
+  d_word = nullptr;
+  temp_case = (int)case_sen;
+  case_sen = true;
+  tmp_srchstr = srch_str;
+  temp2 = srch_str =
+      (unsigned char *)malloc(1 + curr_line->line_length - position);
+  if ((*point == ' ') || (*point == '\t')) {
+    adv_word();
+  }
+  offset -= position;
+  counter = position;
+  line = temp1 = point;
+  while ((*temp1 != '\0') && (*temp1 != ' ') && (*temp1 != '\t') &&
+         (counter < curr_line->line_length)) {
+    *temp2 = *temp1;
+    temp2++;
+    temp1++;
+    counter++;
+  }
+  *temp2 = '\0';
+  if (position != 1) {
+    bol();
+  }
+  while (!Blank_Line(curr_line->prev_line)) {
+    bol();
+  }
+  string_count = 0;
+  status = 1;
+  while ((line != point) && (status != 0)) {
+    status = search(0);
+    string_count++;
+  }
+
+  /*
+   |	now get back to the start of the paragraph to start checking
+   */
+
+  if (position != 1) {
+    bol();
+  }
+  while (!Blank_Line(curr_line->prev_line)) {
+    bol();
+  }
+
+  /*
+   |	Start going through lines, putting spaces at end of lines if they do
+   |	not already exist.  Check line length, and move words to the next line
+   |	if they cross the margin.  Then get words from the next line if they
+   |	will fit in before the margin.
+   */
+
+  counter = 0;
+
+  while (leave_loop == 0) {
+    if (position != curr_line->line_length) {
+      eol();
+    }
+    left(1);
+    if (*point != ' ') {
+      right(1);
+      insert(' ');
+    } else {
+      {
+        right(1);
+      }
+    }
+
+    not_blank = 0;
+
+    /*
+     |	fill line if first word on next line will fit
+     |	in the line without crossing the margin
+     */
+
+    while ((curr_line->next_line != nullptr) &&
+           ((word_len = first_word_len(curr_line->next_line)) > 0) &&
+           ((scr_pos + word_len) < right_margin)) {
+      adv_line();
+      if ((*point == ' ') || (*point == '\t')) {
+        adv_word();
+      }
+      del_word();
+      if (position != 1) {
+        bol();
+      }
+
+      /*
+       |	We know this line was not blank before, so
+       |	make sure that it doesn't have one of the
+       |	leading characters that indicate the line
+       |	should not be modified.
+       |
+       |	We also know that this character should not
+       |	be left as the first character of this line.
+       */
+
+      if ((Blank_Line(curr_line)) && (curr_line->line[0] != '.') &&
+          (curr_line->line[0] != '>')) {
+        del_line();
+        not_blank = 0;
+      } else {
+        {
+          not_blank = 1;
+        }
+      }
+
+      /*
+       |   go to end of previous line
+       */
+      left(1);
+      undel_word();
+      eol();
+      /*
+       |   make sure there's a space at the end of the line
+       */
+      left(1);
+      if (*point != ' ') {
+        right(1);
+        insert(' ');
+      } else {
+        {
+          right(1);
+        }
+      }
+    }
+
+    /*
+     |	make sure line does not cross right margin
+     */
+
+    while (right_margin <= scr_pos) {
+      prev_word();
+      if (position != 1) {
+        del_word();
+        if (Blank_Line(curr_line->next_line)) {
+          insert_line(1);
+        } else {
+          adv_line();
+        }
+        if ((*point == ' ') || (*point == '\t')) {
+          adv_word();
+        }
+        undel_word();
+        not_blank = 1;
+        if (position != 1) {
+          bol();
+        }
+        left(1);
+      }
+    }
+
+    if ((!Blank_Line(curr_line->next_line)) || (not_blank != 0)) {
+      adv_line();
+      counter++;
+    } else {
+      {
+        leave_loop = 1;
+      }
+    }
+  }
+
+  /*
+   |	go back to begin of paragraph, put cursor back to original position
+   */
+
+  if (position != 1) {
+    bol();
+  }
+  while ((counter-- > 0) || (!Blank_Line(curr_line->prev_line))) {
+    bol();
+  }
+
+  /*
+   |	find word cursor was in
+   */
+
+  status = 1;
+  while ((status != 0) && (string_count > 0)) {
+    status = search(0);
+    string_count--;
+  }
+
+  /*
+   |	offset the cursor to where it was before from the start of the word
+   */
+
+  while (offset > 0) {
+    offset--;
+    right(1);
+  }
+
+  if ((string_count > 0) && (offset < 0)) {
+    while (offset < 0) {
+      offset++;
+      left(1);
+    }
+  }
+
+  /*
+   |	reset flags and strings to what they were before formatting
+   */
+
+  if (d_word != nullptr) {
+    free(d_word);
+  }
+  d_word = temp_dword;
+  d_wrd_len = temp_dwl;
+  case_sen = (temp_case != 0);
+  free(srch_str);
+  srch_str = tmp_srchstr;
+  memcpy(d_char, temp_d_char, 8);
+  auto_format = true;
+  dlt_line->line_length = tmp_d_line_length;
+  d_line = tmp_d_line;
+
+  formatted = true;
+  midscreen(scr_vert, point);
+}
+
+void modes_op() {
+  int ret_value;
+  int counter;
+  char *string;
+
+  do {
+    sprintf(modes_menu[1].item_string, "%s %s", mode_strings[1],
+            (expand_tabs ? STATE_ON : STATE_OFF));
+    sprintf(modes_menu[2].item_string, "%s %s", mode_strings[2],
+            (case_sen ? STATE_ON : STATE_OFF));
+    sprintf(modes_menu[3].item_string, "%s %s", mode_strings[3],
+            (observ_margins ? STATE_ON : STATE_OFF));
+    sprintf(modes_menu[4].item_string, "%s %s", mode_strings[4],
+            (auto_format ? STATE_ON : STATE_OFF));
+    sprintf(modes_menu[5].item_string, "%s %s", mode_strings[5],
+            (eightbit ? STATE_ON : STATE_OFF));
+    sprintf(modes_menu[6].item_string, "%s %s", mode_strings[6],
+            (info_window ? STATE_ON : STATE_OFF));
+    sprintf(modes_menu[7].item_string, "%s %s", mode_strings[7],
+            (emacs_keys_mode ? STATE_ON : STATE_OFF));
+    sprintf(modes_menu[8].item_string, "%s %s", mode_strings[8],
+            (vi_keys_mode ? STATE_ON : STATE_OFF));
+    sprintf(modes_menu[9].item_string, "%s %d", mode_strings[9], right_margin);
+    sprintf(modes_menu[10].item_string, "%s %s", mode_strings[10],
+            (ee_chinese ? STATE_ON : STATE_OFF));
+
+    ret_value = menu_op(modes_menu);
+
+    switch (ret_value) {
+    case 1:
+      expand_tabs = !expand_tabs;
+      break;
+    case 2:
+      case_sen = !case_sen;
+      break;
+    case 3:
+      observ_margins = !observ_margins;
+      break;
+    case 4:
+      auto_format = !auto_format;
+      if (auto_format) {
+        observ_margins = true;
+      }
+      break;
+    case 5:
+      eightbit = !eightbit;
+      if (!eightbit) {
+        ee_chinese = false;
+      }
+#ifdef NCURSE
+      if (ee_chinese)
+        nc_setattrib(A_NC_BIG5);
+      else
+        nc_clearattrib(A_NC_BIG5);
+#endif /* NCURSE */
+
+      redraw();
+      wnoutrefresh(text_win);
+      break;
+    case 6:
+      info_window = !info_window;
+      resize_info_win();
+      break;
+    case 7:
+      emacs_keys_mode = !emacs_keys_mode;
+      if (emacs_keys_mode) vi_keys_mode = false;
+      update_libedit_mode();
+      resize_info_win();
+      break;
+    case 8:
+      vi_keys_mode = !vi_keys_mode;
+      if (vi_keys_mode) emacs_keys_mode = false;
+      update_libedit_mode();
+      resize_info_win();
+      break;
+    case 9:
+      string = get_string(margin_prompt, 1);
+      if (string != nullptr) {
+        counter = atoi(string);
+        if (counter > 0) {
+          right_margin = counter;
+        }
+        free(string);
+      }
+      break;
+    case 10:
+      ee_chinese = !ee_chinese;
+      if (ee_chinese) {
+        eightbit = true;
+      }
+#ifdef NCURSE
+      if (ee_chinese)
+        nc_setattrib(A_NC_BIG5);
+      else
+        nc_clearattrib(A_NC_BIG5);
+#endif /* NCURSE */
+      redraw();
+      break;
+    case 11:
+      // Handled by menu struct call to dump_ee_conf
+      break;
+    default:
+      break;
+    }
+  } while (ret_value != 0);
+}
 
 /* a strchr() look-alike for systems without strchr() */
 char *get_token(char *string, char *substring) {
@@ -3529,6 +6045,111 @@ char *get_token(char *string, char *substring) {
  |	"$HOME/foo", "~/$FOO", etc.
  */
 
+char *resolve_name(const char *name) {
+  char long_buffer[1024];
+  static char short_buffer[128];
+  static char *buffer;
+  static char *slash;
+  static char *tmp;
+  static char *start_of_var;
+  static int offset;
+  static int index;
+  static int counter;
+  static struct passwd *user;
+
+  if (name[0] == '~') {
+    if (name[1] == '/') {
+      index = getuid();
+      user = getpwuid(index);
+      slash = (char *)name + 1;
+    } else {
+      slash = (char *)strchr(name, '/');
+      if (slash == nullptr) {
+        return (char *)name;
+      }
+      *slash = '\0';
+      user = getpwnam((name + 1));
+      *slash = '/';
+    }
+    if (user == nullptr) {
+      return (char *)name;
+    }
+    size_t buf_len = strlen(user->pw_dir) + strlen(slash) + 1;
+    buffer = malloc(buf_len);
+    snprintf(buffer, buf_len, "%s%s", user->pw_dir, slash);
+  } else {
+    {
+      buffer = (char *)name;
+    }
+  }
+
+  if (strstr(buffer, "$") != nullptr) {
+    tmp = buffer;
+    index = 0;
+
+    while ((*tmp != '\0') && (index < 1024)) {
+
+      while ((*tmp != '\0') && (*tmp != '$') && (index < 1024)) {
+        long_buffer[index] = *tmp;
+        tmp++;
+        index++;
+      }
+
+      if ((*tmp == '$') && (index < 1024)) {
+        counter = 0;
+        start_of_var = tmp;
+        tmp++;
+        if (*tmp == '{') /* } */ /* bracketed variable name */
+        {
+          tmp++; /* { */
+          while ((*tmp != '\0') && (*tmp != '}') && (counter < 128)) {
+            short_buffer[counter] = *tmp;
+            counter++;
+            tmp++;
+          } /* { */
+          if (*tmp == '}') {
+            tmp++;
+          }
+        } else {
+          while ((*tmp != '\0') && (*tmp != '/') && (*tmp != '$') &&
+                 (counter < 128)) {
+            short_buffer[counter] = *tmp;
+            counter++;
+            tmp++;
+          }
+        }
+        short_buffer[counter] = '\0';
+        if ((slash = getenv(short_buffer)) != nullptr) {
+          offset = strlen(slash);
+          if ((offset + index) < 1024) {
+            strscpy(&long_buffer[index], slash, 1024 - index);
+          }
+          index += offset;
+        } else {
+          while ((start_of_var != tmp) && (index < 1024)) {
+            long_buffer[index] = *start_of_var;
+            start_of_var++;
+            index++;
+          }
+        }
+      }
+    }
+
+    if (index == 1024) {
+      return buffer;
+    }
+    long_buffer[index] = '\0';
+
+    if (name != buffer) {
+      free(buffer);
+    }
+    size_t buffer_len = index + 1;
+    buffer = malloc(buffer_len);
+    strscpy(buffer, long_buffer, buffer_len);
+  }
+
+  return buffer;
+}
 
 bool restrict_mode(void) {
   if (!restricted) {
@@ -3709,7 +6330,6 @@ void strings_init() {
   misc_menu[1].item_string = catgetlocal("format_paragraph", "format paragraph");
   misc_menu[2].item_string = catgetlocal("shell_command", "shell command");
   misc_menu[3].item_string = catgetlocal("check_spelling", "check spelling");
-  misc_menu[4].item_string = catgetlocal("themes_menu", "themes");
   main_menu[0].item_string = catgetlocal("main_menu", "main menu");
   main_menu[1].item_string = catgetlocal("leave_editor", "leave editor");
   main_menu[2].item_string = catgetlocal("help_cmd", "help");
@@ -3932,7 +6552,9 @@ void strings_init() {
   conf_dump_success_msg = catgetlocal("config_saved_msg", "ee configuration saved in file %s");
   modes_menu[11].item_string = mode_strings[11];
   config_dump_menu[0].item_string = catgetlocal("save_ee_config", "save ee configuration");
-  config_dump_menu[1].item_string = catgetlocal("save_config", "save configuration");
+  config_dump_menu[1].item_string =
+      catgetlocal("save_current_dir", "save in current directory");
+  config_dump_menu[2].item_string = catgetlocal("save_home_dir", "save in home directory");
   conf_not_saved_msg = catgetlocal("config_not_saved", "ee configuration not saved");
   ree_no_file_msg = catgetlocal("ree_no_file", "must specify a file when invoking ree");
   menu_too_lrg_msg = catgetlocal("menu_too_large_alt", "menu too large for window");
@@ -4005,12 +6627,4 @@ void strings_init() {
   for (counter = 1; counter < NUM_MODES_ITEMS; counter++) {
     modes_menu[counter].item_string = malloc(80);
   }
-}
-
-void control_undo(void) {
-  undo_perform(&undo_state);
-}
-
-void control_redo(void) {
-  undo_redo(&undo_state);
 }

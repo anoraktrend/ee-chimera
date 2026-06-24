@@ -12,8 +12,11 @@ RESDIR = $(PREFIX)/share/ee
 
 all: ee man root.res
 
-ee: ee.c
-	$(CC) $(CFLAGS) ee.c -o ee $(LDFLAGS)
+SRCS := ee.c fileio.c lsp.c delete.c search.c format.c menu.c undo.c theme.c
+OBJS := $(SRCS:.c=.o)
+
+ee: $(OBJS)
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 root.res: ee.txt
 	@if which genrb > /dev/null 2>&1; then \
@@ -60,7 +63,7 @@ uninstall:
 	rm -rf $(DESTDIR)$(RESDIR)
 
 clean:
-	rm -f ee ee.1 init.ee.5 root.res cluster.txt symorder.txt perf.data
+	rm -f ee *.o ee.1 init.ee.5 root.res cluster.txt symorder.txt perf.data
 
 propeller:
 	chmod +x optimize_ee.sh
