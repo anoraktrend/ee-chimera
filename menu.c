@@ -356,24 +356,25 @@ void modes_op() {
   char *string;
 
   do {
-    sprintf(modes_menu[1].item_string, "%s %s", mode_strings[1],
+    // item_string sizes are 128 bytes allocated in menu init
+    snprintf(modes_menu[1].item_string, 128, "%s %s", mode_strings[1],
             (expand_tabs ? STATE_ON : STATE_OFF));
-    sprintf(modes_menu[2].item_string, "%s %s", mode_strings[2],
+    snprintf(modes_menu[2].item_string, 128, "%s %s", mode_strings[2],
             (case_sen ? STATE_ON : STATE_OFF));
-    sprintf(modes_menu[3].item_string, "%s %s", mode_strings[3],
+    snprintf(modes_menu[3].item_string, 128, "%s %s", mode_strings[3],
             (observ_margins ? STATE_ON : STATE_OFF));
-    sprintf(modes_menu[4].item_string, "%s %s", mode_strings[4],
+    snprintf(modes_menu[4].item_string, 128, "%s %s", mode_strings[4],
             (auto_format ? STATE_ON : STATE_OFF));
-    sprintf(modes_menu[5].item_string, "%s %s", mode_strings[5],
+    snprintf(modes_menu[5].item_string, 128, "%s %s", mode_strings[5],
             (eightbit ? STATE_ON : STATE_OFF));
-    sprintf(modes_menu[6].item_string, "%s %s", mode_strings[6],
+    snprintf(modes_menu[6].item_string, 128, "%s %s", mode_strings[6],
             (info_window ? STATE_ON : STATE_OFF));
-    sprintf(modes_menu[7].item_string, "%s %s", mode_strings[7],
+    snprintf(modes_menu[7].item_string, 128, "%s %s", mode_strings[7],
             (emacs_keys_mode ? STATE_ON : STATE_OFF));
-    sprintf(modes_menu[8].item_string, "%s %s", mode_strings[8],
+    snprintf(modes_menu[8].item_string, 128, "%s %s", mode_strings[8],
             (vi_keys_mode ? STATE_ON : STATE_OFF));
-    sprintf(modes_menu[9].item_string, "%s %d", mode_strings[9], right_margin);
-    sprintf(modes_menu[10].item_string, "%s %s", mode_strings[10],
+    snprintf(modes_menu[9].item_string, 128, "%s %d", mode_strings[9], right_margin);
+    snprintf(modes_menu[10].item_string, 128, "%s %s", mode_strings[10],
             (ee_chinese ? STATE_ON : STATE_OFF));
 
     ret_value = menu_op(modes_menu);

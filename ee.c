@@ -914,9 +914,12 @@ int main(int argc, char *argv[]) {
 }
 
 /* resize the line to length + factor*/
-unsigned char *resiz_line(int factor, struct text *rline, int rpos) {
-  rline->max_length += factor;
-  rline->line = realloc(rline->line, rline->max_length);
+unsigned char *resiz_line(int factor, struct text *restrict rline, int rpos) {
+  int new_max = rline->max_length + factor;
+  unsigned char *new_line = realloc(rline->line, new_max);
+  if (!new_line) return nullptr;
+  rline->line = new_line;
+  rline->max_length = new_max;
   return rline->line + rpos - 1;
 }
 
@@ -1126,11 +1129,11 @@ int tabshift(int temp_int) {
   return 8 - (temp_int & 7);
 }
 
-int out_char(WINDOW *window, int character, int column) {
+int out_char(WINDOW * restrict window, int character, int column) {
   int i1;
-  static int i2;
-  static char *string;
-  static char string2[16];
+  int i2;
+  char *string;
+  char string2[16];
 
   if (character == TAB) {
     i1 = tabshift(column);
@@ -1146,7 +1149,7 @@ int out_char(WINDOW *window, int character, int column) {
     string = "^?";
   } else if (character > 127) {
     if (!eightbit) {
-      sprintf(string2, "<%d>", (character < 0) ? (character + 256) : character);
+      snprintf(string2, sizeof(string2), "<%d>", (character < 0) ? (character + 256) : character);
       string = string2;
     } else {
       ee_waddch(window, (unsigned char)character);
@@ -1228,7 +1231,7 @@ static int get_node_attribute(int line, int col) {
 #endif
 
 /* redraw line from current position */
-void draw_line(int vertical, int horiz, struct text *line, int t_pos) {
+void draw_line(int vertical, int horiz, struct text *restrict line, int t_pos) {
   int d;               /* partial length of special or tab char to display  */
   unsigned char *temp; /* temporary pointer to position in line	     */
   int abs_column;      /* offset in screen units from begin of line	     */
@@ -1366,9 +1369,12 @@ void insert_line(int disp) {
   temp = point;
   if (temp_pos2 < curr_line->line_length) {
     size_t split_len = curr_line->line_length - temp_pos2 + 1;
-    if (split_len > temp_nod->max_length) {
-      temp_nod->max_length = split_len + 10;
-      temp_nod->line = realloc(temp_nod->line, temp_nod->max_length);
+    if (split_len > (size_t)temp_nod->max_length) {
+      int new_max = split_len + 10;
+      unsigned char *new_line = realloc(temp_nod->line, new_max);
+      if (!new_line) return;
+      temp_nod->line = new_line;
+      temp_nod->max_length = new_max;
     }
     memcpy(temp_nod->line, temp, split_len);
     temp_nod->line_length = split_len;
@@ -1523,11 +1529,9 @@ void emacs_control() {
 
 /* go to bottom of file			*/
 void bottom() {
-  if (curr_line->next_line != nullptr) {
+  while (curr_line->next_line != nullptr) {
     curr_line = curr_line->next_line;
     absolute_lin++;
-    bottom();
-    return;
   }
   point = curr_line->line;
   if (horiz_offset != 0) {
@@ -1540,11 +1544,9 @@ void bottom() {
 
 /* go to top of file			*/
 void top() {
-  if (curr_line->prev_line != nullptr) {
+  while (curr_line->prev_line != nullptr) {
     curr_line = curr_line->prev_line;
     absolute_lin--;
-    top();
-    return;
   }
   point = curr_line->line;
   if (horiz_offset != 0) {
@@ -1860,7 +1862,7 @@ void function_key() {
 void print_buffer() {
   char buffer[256];
 
-  sprintf(buffer, ">!%s", print_command);
+  snprintf(buffer, sizeof(buffer), ">!%s", print_command);
   ee_wmove(com_win, 0, 0);
   ee_wclrtoeol(com_win);
   ee_wprintw(com_win, printer_msg_str, print_command);
@@ -2379,7 +2381,7 @@ void get_options(int numargs, char *arguments[]) {
 /* read specified file into current buffer	*/
 
 /* read string and split into lines */
-void get_line(int length, unsigned char *in_string, int *append) {
+void get_line(int length, unsigned char *restrict in_string, int *restrict append) {
   unsigned char *str1;
   unsigned char *str2;
   int num;            /* offset from start of string		*/
@@ -2787,9 +2789,18 @@ void help() {
 }
 #endif
 #endif
+static void buf_append(char *restrict buf, size_t *restrict pos,
+                        size_t cap, const char *restrict s) {
+  while (*s != '\0' && *pos < cap - 1) {
+    buf[(*pos)++] = *s++;
+  }
+  buf[*pos] = '\0';
+}
+
 void generate_dynamic_info() {
   static char total_buf[4096];
   static char lines_buf[MAX_INFO_LINES][256];
+  size_t buf_pos = 0;
   total_buf[0] = '\0';
   num_info_lines = 0;
 
@@ -2801,16 +2812,17 @@ void generate_dynamic_info() {
 
   // Add mandatory main menu hint if menu is enabled
 #ifdef HAS_MENU
-  strcat(total_buf, "Esc menu  ");
+  buf_append(total_buf, &buf_pos, sizeof(total_buf), "Esc menu  ");
 #endif
 
   for (int i = 0; commands_table[i].name != nullptr; i++) {
     const char *key = get_key_binding(commands_table[i].handler, tbl);
     if (key[0] != '\0') {
       char item[64];
-      snprintf(item, sizeof(item), "%s %s  ", key, commands_table[i].short_desc);
-      if (strlen(total_buf) + strlen(item) < sizeof(total_buf) - 1) {
-        strcat(total_buf, item);
+      int n = snprintf(item, sizeof(item), "%s %s  ", key, commands_table[i].short_desc);
+      size_t ilen = (size_t)n < sizeof(item) ? (size_t)n : sizeof(item) - 1;
+      if (buf_pos + ilen < sizeof(total_buf) - 1) {
+        buf_append(total_buf, &buf_pos, sizeof(total_buf), item);
       }
     }
   }
@@ -3452,7 +3464,7 @@ void ispell_op() {
   if (restrict_mode()) {
     return;
   }
-  (void)sprintf(template, "/tmp/ee.XXXXXXXX");
+  (void)snprintf(template, sizeof(template), "/tmp/ee.XXXXXXXX");
   fd = mkstemp(template);
   name = template;
   if (fd < 0) {
@@ -3463,7 +3475,7 @@ void ispell_op() {
   }
   close(fd);
   if (write_file(name, false) != 0) {
-    sprintf(string, "ispell %s", name);
+    snprintf(string, sizeof(string), "ispell %s", name);
     sh_command(string);
     delete_text();
     tmp_file = name;
@@ -3510,7 +3522,7 @@ int from_top(struct text *test_line) {
 
 
 /* a strchr() look-alike for systems without strchr() */
-char *get_token(char *string, char *substring) {
+char *get_token(char *restrict string, char *restrict substring) {
   char *full;
   static char *sub;
 
@@ -3567,16 +3579,15 @@ int unique_test(char *string, char *list[]) {
 }
 
 #ifdef HAS_ICU
-char *catgetlocal(const char *key, char *string) {
+char *locale_string(const char *key, char *fallback) {
   if (icu_bundle == nullptr)
-    return string;
+    return fallback;
 
   UErrorCode status = U_ZERO_ERROR;
   int32_t len;
   const UChar *u_str = ures_getStringByKey(icu_bundle, key, &len, &status);
 
   if (U_SUCCESS(status)) {
-    // Convert UChar* to UTF-8 char*
     int32_t utf8_len;
     u_strToUTF8(nullptr, 0, &utf8_len, u_str, len, &status);
     if (status == U_BUFFER_OVERFLOW_ERROR) {
@@ -3584,29 +3595,29 @@ char *catgetlocal(const char *key, char *string) {
       char *utf8_buf = malloc(utf8_len + 1);
       u_strToUTF8(utf8_buf, utf8_len + 1, nullptr, u_str, len, &status);
       if (U_SUCCESS(status)) {
-        return utf8_buf; // Note: might leak if not careful, but consistent with existing logic
+        return utf8_buf;
       }
       free(utf8_buf);
     }
   }
-  return string;
+  return fallback;
 }
 #else
-char *catgetlocal(const char *key, char *string) { return string; }
+char *locale_string(const char *key, char *fallback) { return fallback; }
 #endif /* HAS_ICU */
 
 /*
- |	The following is to allow for using message catalogs which allow
- |	the software to be 'localized', that is, to use different languages
- |	all with the same binary.  For more information, see your system
- |	documentation, or the X/Open Internationalization Guide.
+ |	ICU resource bundles provide localized strings. The root.res file
+ |	(compiled from ee.txt via genrb) contains the default (English)
+ |	translations. System locale detection picks up the appropriate
+ |	bundle — ee.txt can be translated and compiled per-locale.
  */
 
 const char *get_key_name(int i) {
   static char key[16];
   if (i == 0) return "^@";
   if (i < 27) {
-    sprintf(key, "^%c", i + '@');
+    snprintf(key, sizeof(key), "^%c", i + '@');
     return key;
   }
   if (i == 27) return "^[";
@@ -3615,18 +3626,18 @@ const char *get_key_name(int i) {
   if (i == 30) return "^^";
   if (i == 31) return "^_";
   if (i >= 512 && i < 768) {
-    sprintf(key, "M-%c", i - 512);
+    snprintf(key, sizeof(key), "M-%c", i - 512);
     return key;
   }
   if (i >= 768 && i < 1024) {
-    sprintf(key, "W-%c", i - 768);
+    snprintf(key, sizeof(key), "W-%c", i - 768);
     return key;
   }
   if (i >= KEY_F(1) && i <= KEY_F(12)) {
-    sprintf(key, "F%d", i - KEY_F(0));
+    snprintf(key, sizeof(key), "F%d", i - KEY_F(0));
     return key;
   }
-  sprintf(key, "code:%d", i);
+  snprintf(key, sizeof(key), "code:%d", i);
   return (const char *)key;
 }
 
@@ -3656,7 +3667,7 @@ char *format_shortcut(const char *cmd_name, control_handler *table) {
   if (h == nullptr) return (char *)"";
   const char *key = get_key_binding(h, table);
   if (key[0] == '\0') return (char *)"";
-  sprintf(current_buf, "%s %s", key, short_desc);
+  snprintf(current_buf, 64, "%s %s", key, short_desc);
   return current_buf;
 }
 
@@ -3678,219 +3689,219 @@ void strings_init() {
   }
 #endif
 
-  modes_menu[0].item_string = catgetlocal("modes_menu", "modes menu");
-  mode_strings[1] = catgetlocal("tabs_to_spaces", "tabs to spaces       ");
-  mode_strings[2] = catgetlocal("case_sensitive_search", "case sensitive search");
-  mode_strings[3] = catgetlocal("margins_observed", "margins observed     ");
-  mode_strings[4] = catgetlocal("auto_paragraph_format", "auto-paragraph format");
-  mode_strings[5] = catgetlocal("eightbit_characters", "eightbit characters  ");
-  mode_strings[6] = catgetlocal("info_window_toggle", "info window          ");
-  mode_strings[7] = catgetlocal("emacs_key_bindings", "emacs key bindings   ");
-  mode_strings[8] = catgetlocal("vi_key_bindings", "vi key bindings      ");
-  mode_strings[9] = catgetlocal("right_margin_toggle", "right margin         ");
-  mode_strings[10] = catgetlocal("sixteen_bit_chars", "16 bit characters    ");
-  mode_strings[11] = catgetlocal("save_editor_config", "save editor configuration");
+  modes_menu[0].item_string = locale_string("modes_menu", "modes menu");
+  mode_strings[1] = locale_string("tabs_to_spaces", "tabs to spaces       ");
+  mode_strings[2] = locale_string("case_sensitive_search", "case sensitive search");
+  mode_strings[3] = locale_string("margins_observed", "margins observed     ");
+  mode_strings[4] = locale_string("auto_paragraph_format", "auto-paragraph format");
+  mode_strings[5] = locale_string("eightbit_characters", "eightbit characters  ");
+  mode_strings[6] = locale_string("info_window_toggle", "info window          ");
+  mode_strings[7] = locale_string("emacs_key_bindings", "emacs key bindings   ");
+  mode_strings[8] = locale_string("vi_key_bindings", "vi key bindings      ");
+  mode_strings[9] = locale_string("right_margin_toggle", "right margin         ");
+  mode_strings[10] = locale_string("sixteen_bit_chars", "16 bit characters    ");
+  mode_strings[11] = locale_string("save_editor_config", "save editor configuration");
   
-  leave_menu[0].item_string = catgetlocal("leave_menu", "leave menu");
-  leave_menu[1].item_string = catgetlocal("save_changes", "save changes");
-  leave_menu[2].item_string = catgetlocal("no_save", "no save");
-  file_menu[0].item_string = catgetlocal("file_menu", "file menu");
-  file_menu[1].item_string = catgetlocal("read_file", "read a file");
-  file_menu[2].item_string = catgetlocal("write_file", "write a file");
-  file_menu[3].item_string = catgetlocal("save_file", "save file");
-  file_menu[4].item_string = catgetlocal("print_contents", "print editor contents");
-  search_menu[0].item_string = catgetlocal("search_menu", "search menu");
-  search_menu[1].item_string = catgetlocal("search_for_prompt", "search for ...");
-  search_menu[2].item_string = catgetlocal("search_cmd", "search");
-  spell_menu[0].item_string = catgetlocal("spell_menu", "spell menu");
-  spell_menu[1].item_string = catgetlocal("use_spell", "use 'spell'");
-  spell_menu[2].item_string = catgetlocal("use_ispell", "use 'ispell'");
-  misc_menu[0].item_string = catgetlocal("misc_menu", "miscellaneous menu");
-  misc_menu[1].item_string = catgetlocal("format_paragraph", "format paragraph");
-  misc_menu[2].item_string = catgetlocal("shell_command", "shell command");
-  misc_menu[3].item_string = catgetlocal("check_spelling", "check spelling");
-  misc_menu[4].item_string = catgetlocal("themes_menu", "themes");
-  main_menu[0].item_string = catgetlocal("main_menu", "main menu");
-  main_menu[1].item_string = catgetlocal("leave_editor", "leave editor");
-  main_menu[2].item_string = catgetlocal("help_cmd", "help");
-  main_menu[3].item_string = catgetlocal("file_operations", "file operations");
-  main_menu[4].item_string = catgetlocal("redraw_screen", "redraw screen");
-  main_menu[5].item_string = catgetlocal("settings", "settings");
-  main_menu[6].item_string = catgetlocal("search", "search");
-  main_menu[7].item_string = catgetlocal("miscellaneous", "miscellaneous");
-  help_text[0] = catgetlocal("control_keys_header", "Control keys:                                "
+  leave_menu[0].item_string = locale_string("leave_menu", "leave menu");
+  leave_menu[1].item_string = locale_string("save_changes", "save changes");
+  leave_menu[2].item_string = locale_string("no_save", "no save");
+  file_menu[0].item_string = locale_string("file_menu", "file menu");
+  file_menu[1].item_string = locale_string("read_file", "read a file");
+  file_menu[2].item_string = locale_string("write_file", "write a file");
+  file_menu[3].item_string = locale_string("save_file", "save file");
+  file_menu[4].item_string = locale_string("print_contents", "print editor contents");
+  search_menu[0].item_string = locale_string("search_menu", "search menu");
+  search_menu[1].item_string = locale_string("search_for_prompt", "search for ...");
+  search_menu[2].item_string = locale_string("search_cmd", "search");
+  spell_menu[0].item_string = locale_string("spell_menu", "spell menu");
+  spell_menu[1].item_string = locale_string("use_spell", "use 'spell'");
+  spell_menu[2].item_string = locale_string("use_ispell", "use 'ispell'");
+  misc_menu[0].item_string = locale_string("misc_menu", "miscellaneous menu");
+  misc_menu[1].item_string = locale_string("format_paragraph", "format paragraph");
+  misc_menu[2].item_string = locale_string("shell_command", "shell command");
+  misc_menu[3].item_string = locale_string("check_spelling", "check spelling");
+  misc_menu[4].item_string = locale_string("themes_menu", "themes");
+  main_menu[0].item_string = locale_string("main_menu", "main menu");
+  main_menu[1].item_string = locale_string("leave_editor", "leave editor");
+  main_menu[2].item_string = locale_string("help_cmd", "help");
+  main_menu[3].item_string = locale_string("file_operations", "file operations");
+  main_menu[4].item_string = locale_string("redraw_screen", "redraw screen");
+  main_menu[5].item_string = locale_string("settings", "settings");
+  main_menu[6].item_string = locale_string("search", "search");
+  main_menu[7].item_string = locale_string("miscellaneous", "miscellaneous");
+  help_text[0] = locale_string("control_keys_header", "Control keys:                                "
                                  "                              ");
-  help_text[1] = catgetlocal("help_text_1", "^a ascii code           ^i tab               "
+  help_text[1] = locale_string("help_text_1", "^a ascii code           ^i tab               "
                                  "   ^r right                   ");
-  help_text[2] = catgetlocal("help_text_2", "^b bottom of text       ^j newline           "
+  help_text[2] = locale_string("help_text_2", "^b bottom of text       ^j newline           "
                                  "   ^t top of text             ");
-  help_text[3] = catgetlocal("help_text_3", "^c command              ^k delete char       "
+  help_text[3] = locale_string("help_text_3", "^c command              ^k delete char       "
                                  "   ^u up                      ");
-  help_text[4] = catgetlocal("help_text_4", "^d down                 ^l left              "
+  help_text[4] = locale_string("help_text_4", "^d down                 ^l left              "
                                  "   ^v undelete word           ");
-  help_text[5] = catgetlocal("help_text_5", "^e search prompt        ^m newline           "
+  help_text[5] = locale_string("help_text_5", "^e search prompt        ^m newline           "
                                  "   ^w delete word             ");
-  help_text[6] = catgetlocal("help_text_6", "^f undelete char        ^n next page         "
+  help_text[6] = locale_string("help_text_6", "^f undelete char        ^n next page         "
                                  "   ^x search                  ");
-  help_text[7] = catgetlocal("help_text_7", "^g begin of line        ^o end of line       "
+  help_text[7] = locale_string("help_text_7", "^g begin of line        ^o end of line       "
                                  "   ^y delete line             ");
-  help_text[8] = catgetlocal("help_text_8", "^h backspace            ^p prev page         "
+  help_text[8] = locale_string("help_text_8", "^h backspace            ^p prev page         "
                                  "   ^z undelete line           ");
-  help_text[9] = catgetlocal("help_text_9", "^[ (escape) menu        ESC-Enter: exit ee   "
+  help_text[9] = locale_string("help_text_9", "^[ (escape) menu        ESC-Enter: exit ee   "
                                  "                              ");
-  help_text[10] = catgetlocal("help_text_blank", "                                            "
+  help_text[10] = locale_string("help_text_blank", "                                            "
                                   "                              ");
-  help_text[11] = catgetlocal("commands_header", "Commands:                                   "
+  help_text[11] = locale_string("commands_header", "Commands:                                   "
                                   "                              ");
-  help_text[12] = catgetlocal("commands_help_1", "help    : get this info                 "
+  help_text[12] = locale_string("commands_help_1", "help    : get this info                 "
                                   "file    : print file name          ");
-  help_text[13] = catgetlocal("commands_help_2", "read    : read a file                   "
+  help_text[13] = locale_string("commands_help_2", "read    : read a file                   "
                                   "char    : ascii code of char       ");
-  help_text[14] = catgetlocal("commands_help_3", "write   : write a file                  "
+  help_text[14] = locale_string("commands_help_3", "write   : write a file                  "
                                   "case    : case sensitive search    ");
-  help_text[15] = catgetlocal("commands_help_4", "                                        "
+  help_text[15] = locale_string("commands_help_4", "                                        "
                                   "nocase  : case insensitive search  ");
-  help_text[16] = catgetlocal("commands_help_5", "                                        "
+  help_text[16] = locale_string("commands_help_5", "                                        "
                                   "!cmd    : execute \"cmd\" in shell   ");
-  help_text[17] = catgetlocal("commands_help_6", "line    : display line #                0-9 "
+  help_text[17] = locale_string("commands_help_6", "line    : display line #                0-9 "
                                   "    : go to line \"#\"           ");
-  help_text[18] = catgetlocal("commands_help_7", "expand  : expand tabs                   "
+  help_text[18] = locale_string("commands_help_7", "expand  : expand tabs                   "
                                   "noexpand: do not expand tabs         ");
-  help_text[19] = catgetlocal("commands_help_8", "                                            "
+  help_text[19] = locale_string("commands_help_8", "                                            "
                                   "                                 ");
-  help_text[20] = catgetlocal("usage_summary", "  ee [+#] [-i] [-e] [-h] [file(s)]          "
+  help_text[20] = locale_string("usage_summary", "  ee [+#] [-i] [-e] [-h] [file(s)]          "
                                   "                                  ");
-  help_text[21] = catgetlocal("usage_options", "+# :go to line #  -i :no info window  -e : "
+  help_text[21] = locale_string("usage_options", "+# :go to line #  -i :no info window  -e : "
                                   "don't expand tabs  -h :no highlight");
 
   command_strings[0] =
-      catgetlocal("command_strings_1", "help : get help info  |file  : print file name         "
+      locale_string("command_strings_1", "help : get help info  |file  : print file name         "
                       "|line : print line # ");
   command_strings[1] =
-      catgetlocal("command_strings_2", "read : read a file    |char  : ascii code of char      "
+      locale_string("command_strings_2", "read : read a file    |char  : ascii code of char      "
                       "|0-9 : go to line \"#\"");
   command_strings[2] =
-      catgetlocal("command_strings_3", "write: write a file   |case  : case sensitive search   "
+      locale_string("command_strings_3", "write: write a file   |case  : case sensitive search   "
                       "|exit : leave and save ");
   command_strings[3] =
-      catgetlocal("command_strings_4", "!cmd : shell \"cmd\"    |nocase: ignore case in search  "
+      locale_string("command_strings_4", "!cmd : shell \"cmd\"    |nocase: ignore case in search  "
                       " |quit : leave, no save");
   command_strings[4] =
-      catgetlocal("command_strings_5", "expand: expand tabs   |noexpand: do not expand tabs     "
+      locale_string("command_strings_5", "expand: expand tabs   |noexpand: do not expand tabs     "
                       "                      ");
-  com_win_message = catgetlocal("press_esc_for_menu", "    press Escape (^[) for menu");
-  no_file_string = catgetlocal("no_file", "no file");
-  ascii_code_str = catgetlocal("ascii_code_prompt", "ascii code: ");
-  printer_msg_str = catgetlocal("sending_to_printer", "sending contents of buffer to \"%s\" ");
-  command_str = catgetlocal("command_prompt", "command: ");
-  file_write_prompt_str = catgetlocal("file_write_prompt", "name of file to write: ");
-  file_read_prompt_str = catgetlocal("file_read_prompt", "name of file to read: ");
-  char_str = catgetlocal("character_info", "character = %d");
-  unkn_cmd_str = catgetlocal("unknown_command", "unknown command \"%s\"");
-  non_unique_cmd_msg = catgetlocal("command_not_unique", "entered command is not unique");
-  line_num_str = catgetlocal("line_info", "line %d  ");
-  line_len_str = catgetlocal("length_info", "length = %d");
-  current_file_str = catgetlocal("current_file_info", "current file is \"%s\" ");
+  com_win_message = locale_string("press_esc_for_menu", "    press Escape (^[) for menu");
+  no_file_string = locale_string("no_file", "no file");
+  ascii_code_str = locale_string("ascii_code_prompt", "ascii code: ");
+  printer_msg_str = locale_string("sending_to_printer", "sending contents of buffer to \"%s\" ");
+  command_str = locale_string("command_prompt", "command: ");
+  file_write_prompt_str = locale_string("file_write_prompt", "name of file to write: ");
+  file_read_prompt_str = locale_string("file_read_prompt", "name of file to read: ");
+  char_str = locale_string("character_info", "character = %d");
+  unkn_cmd_str = locale_string("unknown_command", "unknown command \"%s\"");
+  non_unique_cmd_msg = locale_string("command_not_unique", "entered command is not unique");
+  line_num_str = locale_string("line_info", "line %d  ");
+  line_len_str = locale_string("length_info", "length = %d");
+  current_file_str = locale_string("current_file_info", "current file is \"%s\" ");
   usage0 =
-      catgetlocal("usage_text", "usage: %s [-i] [-e] [-h] [+line_number] [file(s)]\n");
-  usage1 = catgetlocal("usage_opt_i", "       -i   turn off info window\n");
-  usage2 = catgetlocal("usage_opt_e", "       -e   do not convert tabs to spaces\n");
-  usage3 = catgetlocal("usage_opt_h", "       -h   do not use highlighting\n");
-  file_is_dir_msg = catgetlocal("file_is_dir", "file \"%s\" is a directory");
-  new_file_msg = catgetlocal("new_file", "new file \"%s\"");
-  cant_open_msg = catgetlocal("cant_open_file", "can't open \"%s\"");
-  open_file_msg = catgetlocal("file_lines_info", "file \"%s\", %d lines");
-  file_read_fin_msg = catgetlocal("finished_reading", "finished reading file \"%s\"");
-  reading_file_msg = catgetlocal("reading_file", "reading file \"%s\"");
-  read_only_msg = catgetlocal("read_only", ", read only");
-  file_read_lines_msg = catgetlocal("file_lines_count", "file \"%s\", %d lines");
-  save_file_name_prompt = catgetlocal("enter_filename", "enter name of file: ");
-  file_not_saved_msg = catgetlocal("no_filename_saved", "no filename entered: file not saved");
+      locale_string("usage_text", "usage: %s [-i] [-e] [-h] [+line_number] [file(s)]\n");
+  usage1 = locale_string("usage_opt_i", "       -i   turn off info window\n");
+  usage2 = locale_string("usage_opt_e", "       -e   do not convert tabs to spaces\n");
+  usage3 = locale_string("usage_opt_h", "       -h   do not use highlighting\n");
+  file_is_dir_msg = locale_string("file_is_dir", "file \"%s\" is a directory");
+  new_file_msg = locale_string("new_file", "new file \"%s\"");
+  cant_open_msg = locale_string("cant_open_file", "can't open \"%s\"");
+  open_file_msg = locale_string("file_lines_info", "file \"%s\", %d lines");
+  file_read_fin_msg = locale_string("finished_reading", "finished reading file \"%s\"");
+  reading_file_msg = locale_string("reading_file", "reading file \"%s\"");
+  read_only_msg = locale_string("read_only", ", read only");
+  file_read_lines_msg = locale_string("file_lines_count", "file \"%s\", %d lines");
+  save_file_name_prompt = locale_string("enter_filename", "enter name of file: ");
+  file_not_saved_msg = locale_string("no_filename_saved", "no filename entered: file not saved");
   changes_made_prompt =
-      catgetlocal("changes_made_sure", "changes have been made, are you sure? (y/n [n]) ");
-  yes_char = catgetlocal("yes_char", "y");
+      locale_string("changes_made_sure", "changes have been made, are you sure? (y/n [n]) ");
+  yes_char = locale_string("yes_char", "y");
   file_exists_prompt =
-      catgetlocal("file_exists_overwrite", "file already exists, overwrite? (y/n) [n] ");
-  create_file_fail_msg = catgetlocal("unable_to_create", "unable to create file \"%s\"");
-  writing_file_msg = catgetlocal("writing_file", "writing file \"%s\"");
-  file_written_msg = catgetlocal("file_written_info", "\"%s\" %d lines, %d characters");
-  searching_msg = catgetlocal("searching", "           ...searching");
-  str_not_found_msg = catgetlocal("string_not_found", "string \"%s\" not found");
-  search_prompt_str = catgetlocal("search_for_prompt", "search for: ");
-  exec_err_msg = catgetlocal("could_not_exec", "could not exec %s\n");
-  continue_msg = catgetlocal("press_return", "press return to continue ");
-  menu_cancel_msg = catgetlocal("press_esc_cancel", "press Esc to cancel");
-  menu_size_err_msg = catgetlocal("menu_too_large", "menu too large for window");
-  press_any_key_msg = catgetlocal("press_any_key", "press any key to continue ");
-  shell_prompt = catgetlocal("shell_command_prompt", "shell command: ");
-  formatting_msg = catgetlocal("formatting_paragraph", "...formatting paragraph...");
+      locale_string("file_exists_overwrite", "file already exists, overwrite? (y/n) [n] ");
+  create_file_fail_msg = locale_string("unable_to_create", "unable to create file \"%s\"");
+  writing_file_msg = locale_string("writing_file", "writing file \"%s\"");
+  file_written_msg = locale_string("file_written_info", "\"%s\" %d lines, %d characters");
+  searching_msg = locale_string("searching", "           ...searching");
+  str_not_found_msg = locale_string("string_not_found", "string \"%s\" not found");
+  search_prompt_str = locale_string("search_for_prompt", "search for: ");
+  exec_err_msg = locale_string("could_not_exec", "could not exec %s\n");
+  continue_msg = locale_string("press_return", "press return to continue ");
+  menu_cancel_msg = locale_string("press_esc_cancel", "press Esc to cancel");
+  menu_size_err_msg = locale_string("menu_too_large", "menu too large for window");
+  press_any_key_msg = locale_string("press_any_key", "press any key to continue ");
+  shell_prompt = locale_string("shell_command_prompt", "shell command: ");
+  formatting_msg = locale_string("formatting_paragraph", "...formatting paragraph...");
   shell_echo_msg =
-      catgetlocal("spell_header", "<!echo 'list of unrecognized words'; echo -=-=-=-=-=-");
+      locale_string("spell_header", "<!echo 'list of unrecognized words'; echo -=-=-=-=-=-");
   spell_in_prog_msg =
-      catgetlocal("sending_to_spell", "sending contents of edit buffer to 'spell'");
-  margin_prompt = catgetlocal("right_margin_info", "right margin is: ");
-  restricted_msg = catgetlocal("restricted_mode_error",
+      locale_string("sending_to_spell", "sending contents of edit buffer to 'spell'");
+  margin_prompt = locale_string("right_margin_info", "right margin is: ");
+  restricted_msg = locale_string("restricted_mode_error",
       "restricted mode: unable to perform requested operation");
-  STATE_ON = catgetlocal("state_on", "ON");
-  STATE_OFF = catgetlocal("state_off", "OFF");
-  HELP = catgetlocal("cmd_help", "HELP");
-  MARK_str = catgetlocal("cmd_mark", "MARK");
-  WRITE = catgetlocal("cmd_write", "WRITE");
-  READ = catgetlocal("cmd_read", "READ");
-  LINE = catgetlocal("cmd_line", "LINE");
-  FILE_str = catgetlocal("cmd_file", "FILE");
-  CHARACTER = catgetlocal("cmd_character", "CHARACTER");
-  REDRAW = catgetlocal("cmd_redraw", "REDRAW");
-  RESEQUENCE = catgetlocal("cmd_resequence", "RESEQUENCE");
-  AUTHOR = catgetlocal("cmd_author", "AUTHOR");
-  VERSION = catgetlocal("cmd_version", "VERSION");
-  CASE = catgetlocal("cmd_case", "CASE");
-  NOCASE = catgetlocal("cmd_nocase", "NOCASE");
-  EXPAND = catgetlocal("cmd_expand", "EXPAND");
-  NOEXPAND = catgetlocal("cmd_noexpand", "NOEXPAND");
-  Exit_string = catgetlocal("cmd_exit", "EXIT");
-  QUIT_string = catgetlocal("cmd_quit", "QUIT");
-  INFO = catgetlocal("cmd_info", "INFO");
-  NOINFO = catgetlocal("cmd_noinfo", "NOINFO");
-  MARGINS = catgetlocal("cmd_margins", "MARGINS");
-  NOMARGINS = catgetlocal("cmd_nomargins", "NOMARGINS");
-  AUTOFORMAT = catgetlocal("cmd_autoformat", "AUTOFORMAT");
-  NOAUTOFORMAT = catgetlocal("cmd_noautoformat", "NOAUTOFORMAT");
-  Echo = catgetlocal("cmd_echo", "ECHO");
-  PRINTCOMMAND = catgetlocal("cmd_printcommand", "PRINTCOMMAND");
-  RIGHTMARGIN = catgetlocal("cmd_rightmargin", "RIGHTMARGIN");
-  HIGHLIGHT = catgetlocal("cmd_highlight", "HIGHLIGHT");
-  NOHIGHLIGHT = catgetlocal("cmd_nohighlight", "NOHIGHLIGHT");
-  EIGHTBIT = catgetlocal("cmd_eightbit", "EIGHTBIT");
-  NOEIGHTBIT = catgetlocal("cmd_noeightbit", "NOEIGHTBIT");
+  STATE_ON = locale_string("state_on", "ON");
+  STATE_OFF = locale_string("state_off", "OFF");
+  HELP = locale_string("cmd_help", "HELP");
+  MARK_str = locale_string("cmd_mark", "MARK");
+  WRITE = locale_string("cmd_write", "WRITE");
+  READ = locale_string("cmd_read", "READ");
+  LINE = locale_string("cmd_line", "LINE");
+  FILE_str = locale_string("cmd_file", "FILE");
+  CHARACTER = locale_string("cmd_character", "CHARACTER");
+  REDRAW = locale_string("cmd_redraw", "REDRAW");
+  RESEQUENCE = locale_string("cmd_resequence", "RESEQUENCE");
+  AUTHOR = locale_string("cmd_author", "AUTHOR");
+  VERSION = locale_string("cmd_version", "VERSION");
+  CASE = locale_string("cmd_case", "CASE");
+  NOCASE = locale_string("cmd_nocase", "NOCASE");
+  EXPAND = locale_string("cmd_expand", "EXPAND");
+  NOEXPAND = locale_string("cmd_noexpand", "NOEXPAND");
+  Exit_string = locale_string("cmd_exit", "EXIT");
+  QUIT_string = locale_string("cmd_quit", "QUIT");
+  INFO = locale_string("cmd_info", "INFO");
+  NOINFO = locale_string("cmd_noinfo", "NOINFO");
+  MARGINS = locale_string("cmd_margins", "MARGINS");
+  NOMARGINS = locale_string("cmd_nomargins", "NOMARGINS");
+  AUTOFORMAT = locale_string("cmd_autoformat", "AUTOFORMAT");
+  NOAUTOFORMAT = locale_string("cmd_noautoformat", "NOAUTOFORMAT");
+  Echo = locale_string("cmd_echo", "ECHO");
+  PRINTCOMMAND = locale_string("cmd_printcommand", "PRINTCOMMAND");
+  RIGHTMARGIN = locale_string("cmd_rightmargin", "RIGHTMARGIN");
+  HIGHLIGHT = locale_string("cmd_highlight", "HIGHLIGHT");
+  NOHIGHLIGHT = locale_string("cmd_nohighlight", "NOHIGHLIGHT");
+  EIGHTBIT = locale_string("cmd_eightbit", "EIGHTBIT");
+  NOEIGHTBIT = locale_string("cmd_noeightbit", "NOEIGHTBIT");
   
-  VI_string = catgetlocal("cmd_vi", "VI");
-  NOVI_string = catgetlocal("cmd_novi", "NOVI");
+  VI_string = locale_string("cmd_vi", "VI");
+  NOVI_string = locale_string("cmd_novi", "NOVI");
 
   emacs_help_text[0] = help_text[0];
   emacs_help_text[1] =
-      catgetlocal("emacs_help_1", "^a beginning of line    ^i tab                  ^r "
+      locale_string("emacs_help_1", "^a beginning of line    ^i tab                  ^r "
                        "restore word            ");
   emacs_help_text[2] =
-      catgetlocal("emacs_help_2", "^b back 1 char          ^j undel char           ^t top "
+      locale_string("emacs_help_2", "^b back 1 char          ^j undel char           ^t top "
                        "of text             ");
   emacs_help_text[3] =
-      catgetlocal("emacs_help_3", "^c command              ^k delete line          ^u "
+      locale_string("emacs_help_3", "^c command              ^k delete line          ^u "
                        "bottom of text          ");
   emacs_help_text[4] =
-      catgetlocal("emacs_help_4", "^d delete char          ^l undelete line        ^v "
+      locale_string("emacs_help_4", "^d delete char          ^l undelete line        ^v "
                        "next page               ");
   emacs_help_text[5] =
-      catgetlocal("emacs_help_5", "^e end of line          ^m newline              ^w "
+      locale_string("emacs_help_5", "^e end of line          ^m newline              ^w "
                        "delete word             ");
   emacs_help_text[6] =
-      catgetlocal("emacs_help_6", "^f forward 1 char       ^n next line            ^x "
+      locale_string("emacs_help_6", "^f forward 1 char       ^n next line            ^x "
                        "search                  ");
   emacs_help_text[7] =
-      catgetlocal("emacs_help_7", "^g go back 1 page       ^o ascii char insert    ^y "
+      locale_string("emacs_help_7", "^g go back 1 page       ^o ascii char insert    ^y "
                        "search prompt           ");
   emacs_help_text[8] =
-      catgetlocal("emacs_help_8", "^h backspace            ^p prev line            ^z "
+      locale_string("emacs_help_8", "^h backspace            ^p prev line            ^z "
                        "next word               ");
   emacs_help_text[9] = help_text[9];
   emacs_help_text[10] = help_text[10];
@@ -3906,38 +3917,38 @@ void strings_init() {
   emacs_help_text[20] = help_text[20];
   emacs_help_text[21] = help_text[21];
   emacs_control_keys[0] =
-      catgetlocal("emacs_control_1", "^[ (escape) menu ^y search prompt ^k delete line   ^p "
+      locale_string("emacs_control_1", "^[ (escape) menu ^y search prompt ^k delete line   ^p "
                        "prev li     ^g prev page");
   emacs_control_keys[1] =
-      catgetlocal("emacs_control_2", "^o ascii code    ^x search        ^l undelete line ^n "
+      locale_string("emacs_control_2", "^o ascii code    ^x search        ^l undelete line ^n "
                        "next li     ^v next page");
   emacs_control_keys[2] =
-      catgetlocal("emacs_control_3", "^u end of file    ^a begin of line  ^w delete word   ^b "
+      locale_string("emacs_control_3", "^u end of file    ^a begin of line  ^w delete word   ^b "
                        "back 1 char ^z next word");
   emacs_control_keys[3] =
-      catgetlocal("emacs_control_4", "^t top of text    ^e end of line    ^r restore word  ^f "
+      locale_string("emacs_control_4", "^t top of text    ^e end of line    ^r restore word  ^f "
                        "forward char            ");
   emacs_control_keys[4] =
-      catgetlocal("emacs_control_5", "^c command        ^d delete char    ^j undelete char     "
+      locale_string("emacs_control_5", "^c command        ^d delete char    ^j undelete char     "
                        "                         ");
   
-  EMACS_string = catgetlocal("cmd_emacs", "EMACS");
-  NOEMACS_string = catgetlocal("cmd_noemacs", "NOEMACS");
-  BIND = catgetlocal("bind_cmd", "BIND");
-  GBIND = catgetlocal("gbind_cmd", "GBIND");
-  EBIND = catgetlocal("ebind_cmd", "EBIND");
-  usage4 = catgetlocal("usage_line_num", "       +#   put cursor at line #\n");
-  conf_dump_err_msg = catgetlocal(
+  EMACS_string = locale_string("cmd_emacs", "EMACS");
+  NOEMACS_string = locale_string("cmd_noemacs", "NOEMACS");
+  BIND = locale_string("bind_cmd", "BIND");
+  GBIND = locale_string("gbind_cmd", "GBIND");
+  EBIND = locale_string("ebind_cmd", "EBIND");
+  usage4 = locale_string("usage_line_num", "       +#   put cursor at line #\n");
+  conf_dump_err_msg = locale_string(
       "config_err_msg", "unable to open .init.ee for writing, no configuration saved!");
-  conf_dump_success_msg = catgetlocal("config_saved_msg", "ee configuration saved in file %s");
+  conf_dump_success_msg = locale_string("config_saved_msg", "ee configuration saved in file %s");
   modes_menu[11].item_string = mode_strings[11];
-  config_dump_menu[0].item_string = catgetlocal("save_ee_config", "save ee configuration");
-  config_dump_menu[1].item_string = catgetlocal("save_config", "save configuration");
-  conf_not_saved_msg = catgetlocal("config_not_saved", "ee configuration not saved");
-  ree_no_file_msg = catgetlocal("ree_no_file", "must specify a file when invoking ree");
-  menu_too_lrg_msg = catgetlocal("menu_too_large_alt", "menu too large for window");
-  more_above_str = catgetlocal("more_above", "^^more^^");
-  more_below_str = catgetlocal("more_below", "VVmoreVV");
+  config_dump_menu[0].item_string = locale_string("save_ee_config", "save ee configuration");
+  config_dump_menu[1].item_string = locale_string("save_config", "save configuration");
+  conf_not_saved_msg = locale_string("config_not_saved", "ee configuration not saved");
+  ree_no_file_msg = locale_string("ree_no_file", "must specify a file when invoking ree");
+  menu_too_lrg_msg = locale_string("menu_too_large_alt", "menu too large for window");
+  more_above_str = locale_string("more_above", "^^more^^");
+  more_below_str = locale_string("more_below", "VVmoreVV");
 
   commands[0] = HELP;
   commands[1] = WRITE;

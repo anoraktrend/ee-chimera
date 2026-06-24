@@ -177,7 +177,8 @@ void replace_prompt() {
       delete_char_at_cursor(1);
     }
     if (replace_term) {
-      for (size_t i = 0; i < strlen((char *)replace_term); i++) {
+      size_t rlen = strlen((char *)replace_term);
+      for (size_t i = 0; i < rlen; i++) {
         insert(replace_term[i]);
       }
     }

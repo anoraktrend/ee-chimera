@@ -1,7 +1,7 @@
 -include config.mk
 
 CC ?= clang
-CFLAGS ?= -std=c23 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600
+CFLAGS ?= -std=c23 -O2 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600
 LDFLAGS ?= -lcurses
 SCDOC ?= scdoc
 
@@ -18,9 +18,9 @@ OBJS := $(SRCS:.c=.o)
 ee: $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
-root.res: ee.txt
+root.res: locale.icu
 	@if which genrb > /dev/null 2>&1; then \
-		genrb ee.txt; \
+		genrb locale.icu; \
 		echo "Generated root.res"; \
 	else \
 		echo "genrb not found, skipping root.res generation"; \

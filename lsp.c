@@ -45,7 +45,7 @@ void lsp_start() {
 }
 void lsp_send(const char *msg) {
   char header[128]; /* HEADER_SIZE */
-  sprintf(header, "Content-Length: %zu\r\n\r\n", strlen(msg));
+  snprintf(header, sizeof(header), "Content-Length: %zu\r\n\r\n", strlen(msg));
   write(lsp_to_child[1], header, strlen(header));
   write(lsp_to_child[1], msg, strlen(msg));
 }
@@ -95,12 +95,13 @@ void lsp_open_file(const char *filename) {
   }
   *e_ptr = '\0';
 
-  char *msg = malloc((total_len * 2) + 1024);
-  sprintf(msg,
-          "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/"
-          "didOpen\",\"params\":{\"textDocument\":{\"uri\":\"file://"
-          "%s\",\"languageId\":\"c\",\"version\":1,\"text\":\"%s\"}}}",
-          filename, escaped);
+  size_t msg_cap = (total_len * 2) + 1024;
+  char *msg = malloc(msg_cap);
+  snprintf(msg, msg_cap,
+           "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/"
+           "didOpen\",\"params\":{\"textDocument\":{\"uri\":\"file://"
+           "%s\",\"languageId\":\"c\",\"version\":1,\"text\":\"%s\"}}}",
+           filename, escaped);
   lsp_send(msg);
   free(buf);
   free(escaped);
@@ -190,12 +191,13 @@ void lsp_change_file(const char *filename) {
   }
   *e_ptr = '\0';
 
-  char *msg = (char *)malloc((total_len * 2) + 1024);
-  sprintf(msg,
-          "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/"
-          "didChange\",\"params\":{\"textDocument\":{\"uri\":\"file://"
-          "%s\",\"version\":2},\"contentChanges\":[{\"text\":\"%s\"}]}}",
-          filename, escaped);
+  size_t msg_cap = (total_len * 2) + 1024;
+  char *msg = (char *)malloc(msg_cap);
+  snprintf(msg, msg_cap,
+           "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/"
+           "didChange\",\"params\":{\"textDocument\":{\"uri\":\"file://"
+           "%s\",\"version\":2},\"contentChanges\":[{\"text\":\"%s\"}]}}",
+           filename, escaped);
   lsp_send(msg);
   free(buf);
   free(escaped);
