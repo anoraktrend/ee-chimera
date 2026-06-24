@@ -7,5 +7,10 @@ musltesting/
 tidyme
 config.mk
 ee.1
-init.ee.51
+init.ee.5
+root.res
 perf.data
+ee.c.bak
+reverse_engineering_analysis.md
+.init.ee
+.init.ee.old
