@@ -69,6 +69,12 @@
 #include "fileio.h"
 #include "theme.h"
 
+static_assert(MAX_WORD_LEN > 0, "MAX_WORD_LEN must be positive");
+static_assert(MAX_IN_STRING > 0, "MAX_IN_STRING must be positive");
+static_assert(MIN_LINE_ALLOC > 0, "MIN_LINE_ALLOC must be positive");
+static_assert(MAX_INIT_STRINGS == 32, "MAX_INIT_STRINGS must be 32");
+static_assert(MAX_UNDO_STEPS > 0, "MAX_UNDO_STEPS must be positive");
+
 void help(void);
 void shell_op(void);
 void leave_op(void);
@@ -81,7 +87,7 @@ void redraw(void);
 int unique_test(char *string, char *list[]);
 void command(char *cmd_str);
 void set_up_term(void);
-void edit_abort(int arg);
+[[noreturn]] void edit_abort(int arg);
 void cleanup(void);
 void insert_line(int no_verify);
 void bol(void);
@@ -98,7 +104,7 @@ void gold_append(void);
 void gold_search_reverse(void);
 void resize_info_win(void);
 #ifdef HAS_ICU
-static int u_char_width(UChar32 c, int column);
+[[maybe_unused]] static int u_char_width(UChar32 c, int column);
 #endif
 void insert(int character);
 char *ee_copyright_message = "Copyright (c) 1986, 1990, 1991, 1992, 1993, "
@@ -120,7 +126,7 @@ int search_wrapper(int arg) {
   return search(arg);
   return 0;
 }
-int menu_op_wrapper(struct menu_entries *m) { return menu_op(m); }
+[[nodiscard]] int menu_op_wrapper(struct menu_entries *m) { return menu_op(m); }
 
 /**
  * strscpy - Copy a C-string into a sized buffer
@@ -166,7 +172,7 @@ struct files *top_of_stack = nullptr;
 
 undo_buffer undo_state;
 
-int char_len_table[256] = {
+static constexpr int char_len_table[256] = {
     [0 ... 8] = 2,   [9] = -1,        [10 ... 31] = 2, [32 ... 126] = 1,
     [127] = 2,       [128 ... 255] = 1};
 
@@ -264,7 +270,7 @@ char *start_at_line = nullptr; /* move to this line at start of session*/
 int in; /* input character			*/
 
 
-char *table[] = {"^@", "^A", "^B", "^C", "^D",  "^E", "^F", "^G",
+static char *const table[] = {"^@", "^A", "^B", "^C", "^D",  "^E", "^F", "^G",
                         "^H", "\t", "^J", "^K", "^L",  "^M", "^N", "^O",
                         "^P", "^Q", "^R", "^S", "^T",  "^U", "^V", "^W",
                         "^X", "^Y", "^Z", "^[", "^\\", "^]", "^^", "^_"};
@@ -916,6 +922,7 @@ int main(int argc, char *argv[]) {
 /* resize the line to length + factor*/
 unsigned char *resiz_line(int factor, struct text *restrict rline, int rpos) {
   int new_max = rline->max_length + factor;
+  if (ckd_add(&new_max, rline->max_length, factor)) return nullptr;
   unsigned char *new_line = realloc(rline->line, new_max);
   if (!new_line) return nullptr;
   rline->line = new_line;
@@ -1059,7 +1066,7 @@ void insert(int character) {
 /* delete character		*/
 
 #ifdef HAS_ICU
-static int u_char_width(UChar32 c, int column) {
+[[maybe_unused]] static int u_char_width(UChar32 c, int column) {
   if (c == '\t')
     return tabshift(column);
   if (c < 32 || c == 127)
@@ -1184,7 +1191,7 @@ int len_char(int character, int column) {
 }
 
 #ifdef HAS_TREESITTER
-static int get_node_attribute(int line, int col) {
+[[maybe_unused]] static int get_node_attribute(int line, int col) {
   if (ts_tree == nullptr) {
     return A_NORMAL;
   }
@@ -1370,7 +1377,8 @@ void insert_line(int disp) {
   if (temp_pos2 < curr_line->line_length) {
     size_t split_len = curr_line->line_length - temp_pos2 + 1;
     if (split_len > (size_t)temp_nod->max_length) {
-      int new_max = split_len + 10;
+      int new_max;
+      if (ckd_add(&new_max, (int)split_len, 10)) return;
       unsigned char *new_line = realloc(temp_nod->line, new_max);
       if (!new_line) return;
       temp_nod->line = new_line;
@@ -1408,13 +1416,11 @@ void insert_line(int disp) {
   }
 }
 
-/* allocate space for line structure	*/
-struct text *txtalloc(void) {
+[[nodiscard]] struct text *txtalloc(void) {
   return ((struct text *)malloc(sizeof(struct text)));
 }
 
-/* allocate space for file name list node */
-struct files *name_alloc(void) {
+[[nodiscard]] struct files *name_alloc(void) {
   return ((struct files *)malloc(sizeof(struct files)));
 }
 
@@ -2526,7 +2532,7 @@ void cleanup() {
 #endif
 }
 
-void edit_abort(int arg) {
+[[noreturn]] void edit_abort(int arg) {
   (void)arg;
   ee_wrefresh(com_win);
   resetty();
@@ -3579,7 +3585,7 @@ int unique_test(char *string, char *list[]) {
 }
 
 #ifdef HAS_ICU
-char *locale_string(const char *key, char *fallback) {
+[[nodiscard]] char *locale_string(const char *key, char *fallback) {
   if (icu_bundle == nullptr)
     return fallback;
 
@@ -3603,7 +3609,7 @@ char *locale_string(const char *key, char *fallback) {
   return fallback;
 }
 #else
-char *locale_string(const char *key, char *fallback) { return fallback; }
+[[nodiscard]] char *locale_string(const char *key, char *fallback) { return fallback; }
 #endif /* HAS_ICU */
 
 /*

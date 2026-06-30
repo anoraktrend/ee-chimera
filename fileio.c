@@ -232,7 +232,7 @@ void finish() {
     quit(0);
   }
 }
-int write_file(char *file_name, bool warn_if_exists) {
+int write_file(const char *file_name, bool warn_if_exists) {
   char cr;
   char *tmp_point;
   struct text *out_line;
@@ -487,7 +487,7 @@ void sh_command(const char *string) {
 
   redraw();
 }
-char *resolve_name(const char *name) {
+[[nodiscard]] char *resolve_name(const char *name) {
   char long_buffer[1024];
   static char short_buffer[128];
   static char *buffer;

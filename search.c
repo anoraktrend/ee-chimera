@@ -7,9 +7,9 @@ unsigned char *u_srch_str; /* pointer to non-case sensitive search	*/
 unsigned char *srch_1;     /* pointer to start of suspect string	*/
 unsigned char *srch_2;     /* pointer to next character of string	*/
 unsigned char *srch_3;
-bool compare(char *string1, char *string2, bool sensitive) {
-  char *strng1 = string1;
-  char *strng2 = string2;
+[[nodiscard]] bool compare(const char *string1, const char *string2, bool sensitive) {
+  const char *strng1 = string1;
+  const char *strng2 = string2;
   bool equal = true;
 
   if ((strng1 == nullptr) || (strng2 == nullptr) || (*strng1 == '\0') ||
@@ -35,7 +35,7 @@ bool compare(char *string1, char *string2, bool sensitive) {
   }
   return equal;
 }
-int search(int display_message) {
+[[nodiscard]] int search(int display_message) {
   int lines_moved;
   int iter;
   int found;
@@ -149,7 +149,7 @@ void search_prompt() {
     srch_3++;
   }
   *srch_1 = '\0';
-  search(1);
+  (void)search(1);
 }
 void replace_prompt() {
   char *search_term = get_string("Replace: ", 0);
@@ -191,7 +191,7 @@ void replace_prompt() {
   if (replace_term)
     free(replace_term);
 }
-int search_reverse(int display_message) {
+[[nodiscard]] int search_reverse(int display_message) {
   if (!srch_str || *srch_str == '\0')
     return 0;
 

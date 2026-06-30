@@ -94,9 +94,9 @@ int menu_op(struct menu_entries menu_list[]) {
     }
   }
   max_width += 3;
-  max_width = max(max_width, (int)strlen(menu_cancel_msg));
-  max_width = max(
-      max_width, max((int)strlen(more_above_str), (int)strlen(more_below_str)));
+  max_width = max_int(max_width, (int)strlen(menu_cancel_msg));
+  max_width = max_int(
+      max_width, max_int((int)strlen(more_above_str), (int)strlen(more_below_str)));
   max_width += 6;
 
   /*
@@ -153,7 +153,7 @@ int menu_op(struct menu_entries menu_list[]) {
     }
 
     ee_wrefresh(temp_win);
-    in = wgetch(temp_win);
+    int in = wgetch(temp_win);
     input = in;
     if (input == -1) {
       edit_abort(0);
@@ -327,7 +327,7 @@ void paint_menu(struct menu_entries menu_list[], int max_width,
       ee_wmove(menu_win, (top_offset + counter - off_start), 3);
       if (list_size > 1) {
         ee_wprintw(menu_win, "%c) ",
-                item_alpha[min((counter - 1), MAX_ALPHA_CHAR)]);
+                item_alpha[min_int((counter - 1), MAX_ALPHA_CHAR)]);
       }
       ee_waddstr(menu_win, menu_list[counter].item_string);
       if (off_start > 1) {
@@ -344,7 +344,7 @@ void paint_menu(struct menu_entries menu_list[], int max_width,
       ee_wmove(menu_win, (top_offset + counter - 1), 3);
       if (list_size > 1) {
         ee_wprintw(menu_win, "%c) ",
-                item_alpha[min((counter - 1), MAX_ALPHA_CHAR)]);
+                item_alpha[min_int((counter - 1), MAX_ALPHA_CHAR)]);
       }
       ee_waddstr(menu_win, menu_list[counter].item_string);
     }

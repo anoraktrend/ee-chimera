@@ -14,7 +14,7 @@ static int theme_count = 0;
 static struct menu_entries theme_menu_entries[MAX_THEMES + 2];
 static bool themes_loaded = false;
 
-static const struct {
+static const struct theme_pair {
   const char *fish_var;
   int pair;
 } fish_to_pair[] = {
@@ -25,7 +25,7 @@ static const struct {
   {"fish_color_command",  5},
   {"fish_color_normal",   6},
   {"fish_color_error",    7},
-  {NULL, 0}
+  {nullptr, 0}
 };
 
 static int lookup_named_color(const char *name) {
@@ -111,7 +111,7 @@ static int parse_color_value(const char *value, int *attr) {
         }
       }
     }
-    token = strtok(NULL, " \t");
+    token = strtok(nullptr, " \t");
   }
 
   if (color == -2) color = COLOR_WHITE;
@@ -123,7 +123,7 @@ static void scan_theme_dir(const char *dir) {
   if (!d) return;
 
   struct dirent *entry;
-  while ((entry = readdir(d)) != NULL) {
+  while ((entry = readdir(d)) != nullptr) {
     const char *ext = strrchr(entry->d_name, '.');
     if (!ext || strcmp(ext, ".theme") != 0) continue;
     if (theme_count >= MAX_THEMES) break;

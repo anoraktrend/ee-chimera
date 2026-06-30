@@ -11,7 +11,7 @@ extern unsigned char *srch_1;
 extern unsigned char *srch_2;
 extern unsigned char *srch_3;
 
-bool compare(char *string1, char *string2, bool sensitive);
+bool compare(const char *string1, const char *string2, bool sensitive);
 int search(int display_message);
 void search_prompt(void);
 void replace_prompt(void);

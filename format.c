@@ -8,7 +8,7 @@ static int first_word_len(struct text *line) {
   ptr += strspn(ptr, " \t");  /* Skip leading whitespace */
   return strcspn(ptr, " \t"); /* Count length of the word */
 }
-bool Blank_Line(struct text *test_line) {
+[[nodiscard]] bool Blank_Line(struct text *test_line) {
   if (test_line == nullptr) {
     return true;
   }

@@ -95,7 +95,9 @@ void lsp_open_file(const char *filename) {
   }
   *e_ptr = '\0';
 
-  size_t msg_cap = (total_len * 2) + 1024;
+  size_t msg_cap;
+  if (ckd_mul(&msg_cap, total_len, 2)) return;
+  if (ckd_add(&msg_cap, msg_cap, 1024)) return;
   char *msg = malloc(msg_cap);
   snprintf(msg, msg_cap,
            "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/"

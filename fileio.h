@@ -47,7 +47,7 @@ extern struct text *tmp_line;
 extern struct files *top_of_stack;
 extern char *start_at_line;
 
-int write_file(char *file_name, bool warn_if_exists);
+int write_file(const char *file_name, bool warn_if_exists);
 void check_fp(void);
 void get_file(const char *file_name);
 void sh_command(const char *string);

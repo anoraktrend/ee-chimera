@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdckdint.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
@@ -40,9 +41,7 @@
 
 #include "ee_version.h"
 
-#ifndef nullptr
-#define nullptr NULL
-#endif
+/* C23 provides nullptr; no need for custom macro */
 
 #define MAX_INIT_STRINGS 32
 #define MAX_EMACS_HELP_LINES 22
@@ -51,12 +50,11 @@
 #define MAX_IN_STRING 1024
 #define MAX_ALPHA_CHAR 52
 
-#ifndef min
-#define min(a, b) (((a) < (b)) ? (a) : (b))
-#endif
-#ifndef max
-#define max(a, b) (((a) > (b)) ? (a) : (b))
-#endif
+static inline int min_int(int a, int b) { return (a < b) ? a : b; }
+static inline int max_int(int a, int b) { return (a > b) ? a : b; }
+
+#define min(a, b) ((a) < (b) ? (a) : (b))
+#define max(a, b) ((a) > (b) ? (a) : (b))
 
 #define TAB 9
 
@@ -103,7 +101,7 @@ int quit_wrapper(int arg);
 int file_op_wrapper(int arg);
 int search_wrapper(int arg);
 #ifdef HAS_MENU
-int menu_op_wrapper(struct menu_entries *m);
+[[nodiscard]] int menu_op_wrapper(struct menu_entries *m);
 #endif
 void no_op(void);
 
@@ -397,11 +395,12 @@ extern undo_buffer undo_state;
 void strings_init(void);
 void ee_init(void);
 void echo_string(char *string);
-bool compare(char *string1, char *string2, bool sensitive);
-char *resolve_name(const char *name);
-int write_file(char *file_name, bool warn_if_exists);
+[[nodiscard]] bool compare(const char *string1, const char *string2, bool sensitive);
+[[nodiscard]] char *resolve_name(const char *name);
+int write_file(const char *file_name, bool warn_if_exists);
 char *get_token(char *restrict string, char *restrict substring);
 char *locale_string(const char *key, char *fallback);
+
 void *next_word(void *string);
 void draw_screen(void);
 void get_file(const char *file_name);
@@ -455,8 +454,8 @@ void menu_op_call(void);
 void modes_op(void);
 void resize_info_win(void);
 void command(char *cmd_str);
-char *get_string(char *prompt, int advance);
-void edit_abort(int arg);
+[[nodiscard]] char *get_string(char *prompt, int advance);
+[[noreturn]] void edit_abort(int arg);
 void cleanup(void);
 int unique_test(char *string, char *list[]);
 void get_options(int argc, char *argv[]);
@@ -467,12 +466,12 @@ int menu_op(struct menu_entries menu_list[]);
 void shell_op(void);
 void sh_command(const char *string);
 void check_fp(void);
-bool restrict_mode(void);
+[[nodiscard]] bool restrict_mode(void);
 void dump_ee_conf(void);
 void update_libedit_mode(void);
-struct text *txtalloc(void);
+[[nodiscard]] struct text *txtalloc(void);
 
-unsigned char *resiz_line(int factor, struct text *restrict rline, int rpos);
+[[nodiscard]] unsigned char *resiz_line(int factor, struct text *restrict rline, int rpos);
 struct text *find_next_recursive(struct text *line, int count, int *actual_count);
 struct text *find_prev_recursive(struct text *line, int count, int *actual_count);
 void help(void);
@@ -505,7 +504,7 @@ int scanline_step(unsigned char *ptr, const unsigned char *pos, int temp);
 
 #ifdef HAS_ICU
 extern UResourceBundle *icu_bundle;
-static int u_char_width(UChar32 c, int column);
+[[maybe_unused]] static int u_char_width(UChar32 c, int column);
 #endif
 
 #ifdef HAS_LSP

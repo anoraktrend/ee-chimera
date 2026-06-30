@@ -498,7 +498,9 @@ void undel_word() {
   if ((curr_line->max_length - (curr_line->line_length + d_wrd_len)) < 5) {
     point = resiz_line(d_wrd_len, curr_line, position);
   }
-  tmp_ptr = tmp_space = malloc(curr_line->line_length + d_wrd_len);
+  int tmp_size;
+  if (ckd_add(&tmp_size, curr_line->line_length, d_wrd_len)) return;
+  tmp_ptr = tmp_space = malloc(tmp_size);
   d_word_ptr = d_word;
   temp = 1;
   /*

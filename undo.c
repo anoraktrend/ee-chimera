@@ -21,9 +21,9 @@ void undo_init(undo_buffer *buffer) {
     
     memset(buffer, 0, sizeof(undo_buffer));
     buffer->capacity = MAX_UNDO_STEPS;
-    buffer->head = NULL;
-    buffer->tail = NULL;
-    buffer->current = NULL;
+    buffer->head = nullptr;
+    buffer->tail = nullptr;
+    buffer->current = nullptr;
     buffer->size = 0;
     buffer->position = 0;
     buffer->in_transaction = false;
@@ -55,14 +55,14 @@ void undo_end_transaction(undo_buffer *buffer) {
     buffer->in_transaction = false;
 }
 
-bool undo_can_undo(undo_buffer *buffer) {
+[[nodiscard]] bool undo_can_undo(undo_buffer *buffer) {
     if (!buffer) return false;
-    return buffer->current != NULL && buffer->position > 0;
+    return buffer->current != nullptr && buffer->position > 0;
 }
 
-bool undo_can_redo(undo_buffer *buffer) {
+[[nodiscard]] bool undo_can_redo(undo_buffer *buffer) {
     if (!buffer) return false;
-    return buffer->current != NULL && buffer->position < buffer->size - 1;
+    return buffer->current != nullptr && buffer->position < buffer->size - 1;
 }
 
 void undo_perform(undo_buffer *buffer) {
@@ -152,11 +152,11 @@ void undo_record_move(undo_buffer *buffer, int from_line, int from_col, int to_l
     undo_entry *entry = (undo_entry *)malloc(sizeof(undo_entry));
     if (!entry) return;
     
-    undo_entry_init(entry, UNDO_MOVE, from_line, from_col, 0, NULL);
+    undo_entry_init(entry, UNDO_MOVE, from_line, from_col, 0, nullptr);
     entry->line_after = (struct text *)malloc(sizeof(struct text));
     if (entry->line_after) {
         entry->line_after->line_number = to_line;
-        entry->line_after->line = NULL;
+        entry->line_after->line = nullptr;
     }
     undo_buffer_add(buffer, entry);
 }
@@ -204,9 +204,9 @@ void undo_clear(undo_buffer *buffer) {
         entry = next;
     }
     
-    buffer->head = NULL;
-    buffer->tail = NULL;
-    buffer->current = NULL;
+    buffer->head = nullptr;
+    buffer->tail = nullptr;
+    buffer->current = nullptr;
     buffer->size = 0;
     buffer->position = 0;
 }
@@ -222,7 +222,7 @@ void undo_save_state(undo_buffer *buffer) {
     if (!entry) return;
     
     undo_entry_init(entry, UNDO_INSERT, curr_line ? curr_line->line_number : 0, 
-                    position, 0, NULL);
+                    position, 0, nullptr);
     undo_buffer_add(buffer, entry);
 }
 
@@ -231,7 +231,7 @@ static void undo_entry_init(undo_entry *entry, undo_action_type action, int line
     
     memset(entry, 0, sizeof(undo_entry));
     entry->action = action;
-    entry->timestamp = time(NULL);
+    entry->timestamp = time(nullptr);
     entry->line_number = line_number;
     entry->column = column;
     entry->length = length;
@@ -249,17 +249,17 @@ static void undo_entry_cleanup(undo_entry *entry) {
     
     if (entry->data) {
         free(entry->data);
-        entry->data = NULL;
+        entry->data = nullptr;
     }
     
     if (entry->line_before) {
         free(entry->line_before);
-        entry->line_before = NULL;
+        entry->line_before = nullptr;
     }
     
     if (entry->line_after) {
         free(entry->line_after);
-        entry->line_after = NULL;
+        entry->line_after = nullptr;
     }
 }
 
@@ -276,7 +276,7 @@ static void undo_buffer_add(undo_buffer *buffer, undo_entry *entry) {
         undo_entry *old = buffer->head;
         buffer->head = old->next;
         if (!buffer->head) {
-            buffer->tail = NULL;
+            buffer->tail = nullptr;
         }
         undo_entry_cleanup(old);
         free(old);
@@ -287,11 +287,11 @@ static void undo_buffer_add(undo_buffer *buffer, undo_entry *entry) {
     if (!buffer->head) {
         buffer->head = entry;
         buffer->tail = entry;
-        entry->next = NULL;
+        entry->next = nullptr;
     } else {
         buffer->tail->next = entry;
         buffer->tail = entry;
-        entry->next = NULL;
+        entry->next = nullptr;
     }
     
     buffer->size++;
@@ -311,7 +311,9 @@ static void undo_perform_insert(undo_entry *entry) {
     
     if (!line) return;
     
-    unsigned char *new_line = (unsigned char *)malloc(line->line_length + entry->length + 1);
+    int new_len;
+    if (ckd_add(&new_len, line->line_length, entry->length)) return;
+    unsigned char *new_line = (unsigned char *)malloc(new_len + 1);
     if (!new_line) return;
     
     int pos = 0;
@@ -454,7 +456,9 @@ static void undo_perform_paste(undo_entry *entry) {
     
     if (!line || !entry->data) return;
     
-    unsigned char *new_line = (unsigned char *)malloc(line->line_length + entry->length + 1);
+    int paste_len;
+    if (ckd_add(&paste_len, line->line_length, entry->length)) return;
+    unsigned char *new_line = (unsigned char *)malloc(paste_len + 1);
     if (!new_line) return;
     
     int pos = 0;
@@ -462,11 +466,11 @@ static void undo_perform_paste(undo_entry *entry) {
         new_line[pos++] = line->line[entry->column - i - 1];
     }
     
-    for (int i = 0; i < entry->length && pos < line->line_length + entry->length; i++) {
+    for (int i = 0; i < entry->length && pos < paste_len; i++) {
         new_line[pos++] = entry->data[i];
     }
     
-    for (int i = entry->column; i < line->line_length && pos < line->line_length + entry->length; i++) {
+    for (int i = entry->column; i < line->line_length && pos < paste_len; i++) {
         new_line[pos++] = line->line[i];
     }
     
