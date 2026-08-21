@@ -9,9 +9,9 @@
 #ifdef HAS_TREESITTER
 #include <tree_sitter/api.h>
 const TSLanguage *tree_sitter_c(void);
-#endif
 TSParser *ts_parser = nullptr;
 TSTree *ts_tree = nullptr;
+#endif
 int lsp_to_child[2];
 int lsp_from_child[2];
 pid_t lsp_pid = -1;
@@ -49,19 +49,18 @@ void lsp_send(const char *msg) {
   write(lsp_to_child[1], header, strlen(header));
   write(lsp_to_child[1], msg, strlen(msg));
 }
-void lsp_open_file(const char *filename) {
-
-  if (filename == nullptr) {
-    return;
-  }
-  // Read buffer into string
-  size_t total_len = 0;
+static char *lsp_serialize_buffer(size_t *total_len) {
+  *total_len = 0;
   struct text const *line = first_line;
   while (line != nullptr) {
-    total_len += line->line_length;
+    *total_len += line->line_length;
     line = line->next_line;
   }
-  char *buf = malloc(total_len + 1);
+  char *buf = (char *)malloc(*total_len + 1);
+  if (buf == nullptr) {
+    *total_len = 0;
+    return nullptr;
+  }
   char *ptr = buf;
   line = first_line;
   while (line != nullptr) {
@@ -72,9 +71,14 @@ void lsp_open_file(const char *filename) {
     line = line->next_line;
   }
   *ptr = '\0';
+  return buf;
+}
 
-  // Escape JSON
-  char *escaped = malloc((total_len * 2) + 1);
+static char *lsp_escape_json(char const *buf, size_t total_len) {
+  char *escaped = (char *)malloc((total_len * 2) + 1);
+  if (escaped == nullptr) {
+    return nullptr;
+  }
   char *e_ptr = escaped;
   for (char const *ptr_c = buf; (*ptr_c) != 0; ptr_c++) {
     if (*ptr_c == '\"' || *ptr_c == '\\' || *ptr_c == '\n' || *ptr_c == '\r' ||
@@ -94,17 +98,37 @@ void lsp_open_file(const char *filename) {
     }
   }
   *e_ptr = '\0';
+  return escaped;
+}
+
+void lsp_open_file(const char *filename) {
+
+  if (filename == nullptr) {
+    return;
+  }
+  size_t total_len = 0;
+  char *buf = lsp_serialize_buffer(&total_len);
+  if (buf == nullptr) {
+    return;
+  }
+  char *escaped = lsp_escape_json(buf, total_len);
+  if (escaped == nullptr) {
+    free(buf);
+    return;
+  }
 
   size_t msg_cap;
-  if (ckd_mul(&msg_cap, total_len, 2)) return;
-  if (ckd_add(&msg_cap, msg_cap, 1024)) return;
-  char *msg = malloc(msg_cap);
-  snprintf(msg, msg_cap,
-           "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/"
-           "didOpen\",\"params\":{\"textDocument\":{\"uri\":\"file://"
-           "%s\",\"languageId\":\"c\",\"version\":1,\"text\":\"%s\"}}}",
-           filename, escaped);
-  lsp_send(msg);
+  bool cap_ok = !ckd_mul(&msg_cap, total_len, 2);
+  cap_ok = cap_ok && !ckd_add(&msg_cap, msg_cap, 1024);
+  char *msg = cap_ok ? (char *)malloc(msg_cap) : nullptr;
+  if (msg != nullptr) {
+    snprintf(msg, msg_cap,
+             "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/"
+             "didOpen\",\"params\":{\"textDocument\":{\"uri\":\"file://"
+             "%s\",\"languageId\":\"c\",\"version\":1,\"text\":\"%s\"}}}",
+             filename, escaped);
+    lsp_send(msg);
+  }
   free(buf);
   free(escaped);
   free(msg);
@@ -155,56 +179,31 @@ void lsp_change_file(const char *filename) {
     return;
   }
   size_t total_len = 0;
-  struct text const *line = first_line;
-  while (line != nullptr) {
-    total_len += line->line_length;
-    line = line->next_line;
+  char *buf = lsp_serialize_buffer(&total_len);
+  if (buf == nullptr) {
+    return;
   }
-  char *buf = (char *)malloc(total_len + 1);
-  char *ptr = buf;
-  line = first_line;
-  while (line != nullptr) {
-    memcpy(ptr, line->line, line->line_length - 1);
-    ptr += line->line_length - 1;
-    *ptr = '\n';
-    ptr++;
-    line = line->next_line;
+  char *escaped = lsp_escape_json(buf, total_len);
+  if (escaped == nullptr) {
+    free(buf);
+    return;
   }
-  *ptr = '\0';
-
-  char *escaped = (char *)malloc((total_len * 2) + 1);
-  char *e_ptr = escaped;
-  for (char const *ptr_c = buf; (*ptr_c) != 0; ptr_c++) {
-    if (*ptr_c == '\"' || *ptr_c == '\\' || *ptr_c == '\n' || *ptr_c == '\r' ||
-        *ptr_c == '\t') {
-      *e_ptr++ = '\\';
-      if (*ptr_c == '\n') {
-        *e_ptr++ = 'n';
-      } else if (*ptr_c == '\r') {
-        *e_ptr++ = 'r';
-      } else if (*ptr_c == '\t') {
-        *e_ptr++ = 't';
-      } else {
-        *e_ptr++ = *ptr_c;
-      }
-    } else {
-      *e_ptr++ = *ptr_c;
-    }
-  }
-  *e_ptr = '\0';
 
   size_t msg_cap = (total_len * 2) + 1024;
   char *msg = (char *)malloc(msg_cap);
-  snprintf(msg, msg_cap,
-           "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/"
-           "didChange\",\"params\":{\"textDocument\":{\"uri\":\"file://"
-           "%s\",\"version\":2},\"contentChanges\":[{\"text\":\"%s\"}]}}",
-           filename, escaped);
-  lsp_send(msg);
+  if (msg != nullptr) {
+    snprintf(msg, msg_cap,
+             "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/"
+             "didChange\",\"params\":{\"textDocument\":{\"uri\":\"file://"
+             "%s\",\"version\":2},\"contentChanges\":[{\"text\":\"%s\"}]}}",
+             filename, escaped);
+    lsp_send(msg);
+  }
   free(buf);
   free(escaped);
   free(msg);
 }
+#ifdef HAS_TREESITTER
 const char *ts_read_buffer(void *payload, uint32_t byte_index, TSPoint position,
                            uint32_t *bytes_read) {
   struct text *line = (struct text *)payload;
@@ -247,3 +246,4 @@ void reparse() {
   }
   ts_tree = ts_parser_parse(ts_parser, nullptr, input);
 }
+#endif /* HAS_TREESITTER */

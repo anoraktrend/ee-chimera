@@ -1437,18 +1437,11 @@ void *next_word(void *s) {
 }
 
 /* move to start of previous word in text	*/
-static unsigned char *skip_spaces_back(unsigned char *start,
-                                       unsigned char *ptr) {
+static unsigned char *skip_chars_back(unsigned char *start, unsigned char *ptr,
+                                      bool const spaces) {
   unsigned char *current = ptr;
-  while (current > start && (*(current - 1) == ' ' || *(current - 1) == '\t')) {
-    current--;
-  }
-  return current;
-}
-
-static unsigned char *skip_word_back(unsigned char *start, unsigned char *ptr) {
-  unsigned char *current = ptr;
-  while (current > start && (*(current - 1) != ' ' && *(current - 1) != '\t')) {
+  while (current > start &&
+         ((*(current - 1) == ' ' || *(current - 1) == '\t') == spaces)) {
     current--;
   }
   return current;
@@ -1463,8 +1456,8 @@ void prev_word() {
         new_p--;
       }
     }
-    new_p = skip_spaces_back(curr_line->line, new_p);
-    new_p = skip_word_back(curr_line->line, new_p);
+    new_p = skip_chars_back(curr_line->line, new_p, true);
+    new_p = skip_chars_back(curr_line->line, new_p, false);
 
     if ((new_p > curr_line->line) && ((*new_p == ' ') || (*new_p == '\t'))) {
       new_p++;
@@ -1533,35 +1526,25 @@ void emacs_control() {
   handler();
 }
 
-/* go to bottom of file			*/
-void bottom() {
-  while (curr_line->next_line != nullptr) {
-    curr_line = curr_line->next_line;
-    absolute_lin++;
+/* travel to the top or bottom edge of the file	*/
+static void goto_buffer_edge(bool const to_bottom) {
+  while (to_bottom ? curr_line->next_line != nullptr
+                   : curr_line->prev_line != nullptr) {
+    curr_line = to_bottom ? curr_line->next_line : curr_line->prev_line;
+    absolute_lin += to_bottom ? 1 : -1;
   }
   point = curr_line->line;
-  if (horiz_offset != 0) {
-    horiz_offset = 0;
-  }
+  horiz_offset = 0;
   position = 1;
-  midscreen(last_line, point);
+  midscreen(to_bottom ? last_line : 0, point);
   scr_pos = scr_horz;
 }
 
+/* go to bottom of file			*/
+void bottom() { goto_buffer_edge(true); }
+
 /* go to top of file			*/
-void top() {
-  while (curr_line->prev_line != nullptr) {
-    curr_line = curr_line->prev_line;
-    absolute_lin--;
-  }
-  point = curr_line->line;
-  if (horiz_offset != 0) {
-    horiz_offset = 0;
-  }
-  position = 1;
-  midscreen(0, point);
-  scr_pos = scr_horz;
-}
+void top() { goto_buffer_edge(false); }
 
 /* move pointers to start of next line	*/
 void nextline() {
@@ -2262,12 +2245,14 @@ void goto_line(char *cmd_str) {
   ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
 }
 
-struct text *find_next_recursive(struct text *line, int count,
-                                 int *actual_count) {
+/* walk count lines in the given direction, reporting how far we went */
+static struct text *walk_lines(struct text *line, int count,
+                               int *actual_count, bool const forward) {
   struct text *curr = line;
   int i = 0;
-  while (curr != nullptr && curr->next_line != nullptr && i < count) {
-    curr = curr->next_line;
+  while (curr != nullptr && i < count &&
+         (forward ? curr->next_line : curr->prev_line) != nullptr) {
+    curr = forward ? curr->next_line : curr->prev_line;
     i++;
   }
   if (actual_count != nullptr)
@@ -2275,17 +2260,14 @@ struct text *find_next_recursive(struct text *line, int count,
   return curr;
 }
 
+struct text *find_next_recursive(struct text *line, int count,
+                                 int *actual_count) {
+  return walk_lines(line, count, actual_count, true);
+}
+
 struct text *find_prev_recursive(struct text *line, int count,
                                  int *actual_count) {
-  struct text *curr = line;
-  int i = 0;
-  while (curr != nullptr && curr->prev_line != nullptr && i < count) {
-    curr = curr->prev_line;
-    i++;
-  }
-  if (actual_count != nullptr)
-    *actual_count += i;
-  return curr;
+  return walk_lines(line, count, actual_count, false);
 }
 
 /* put current line in middle of screen	*/
