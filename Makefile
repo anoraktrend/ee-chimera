@@ -2,7 +2,10 @@
 
 CC ?= clang
 CFLAGS ?= -std=c23 -O2 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600
-LDFLAGS ?= -lcurses
+LDFLAGS ?= -lcursesw
+
+# Feature flags (set in config.mk or via configure.sh)
+CFLAGS += -DHAS_LSP -DHAS_TREE_SITTER -DHAS_ICU
 SCDOC ?= scdoc
 
 PREFIX ?= /usr/local
@@ -12,7 +15,7 @@ RESDIR = $(PREFIX)/share/ee
 
 all: ee man root.res
 
-SRCS := ee.c fileio.c lsp.c delete.c search.c format.c menu.c undo.c theme.c
+SRCS := ee.c input.c render.c state.c fileio.c lsp.c delete.c search.c format.c menu.c undo.c theme.c
 OBJS := $(SRCS:.c=.o)
 
 ee: $(OBJS)
@@ -68,3 +71,33 @@ clean:
 propeller:
 	chmod +x optimize_ee.sh
 	./optimize_ee.sh
+
+# Minimal build (no LSP, tree-sitter, or ICU)
+minimal:
+	$(CC) $(CFLAGS) -DHAS_MINIMAL -o ee $(SRCS) $(LDFLAGS)
+
+# Link-Time Optimization
+lto:
+	$(CC) $(CFLAGS) -flto -o ee $(OBJS) $(LDFLAGS)
+
+# PGO for minimal builds
+pgo-minimal:
+	$(CC) $(CFLAGS) -DHAS_MINIMAL -fprofile-generate -o ee $(SRCS) $(LDFLAGS)
+	@echo "Run the binary to generate profile data, then rerun 'make pgo-minimal'"
+	@echo "Example: ./ee test_input.txt"
+
+pgo-minimal-final:
+	$(CC) $(CFLAGS) -DHAS_MINIMAL -fprofile-use -o ee $(SRCS) $(LDFLAGS)
+
+# Static linking
+static:
+	$(CC) $(CFLAGS) -static -o ee $(OBJS) $(LDFLAGS)
+
+# Binary size breakdown
+size:
+	size ee
+	objdump -t ee | sort -k 5 > symbols.txt
+
+# Profiling
+perf:
+	perf stat -d ./ee
