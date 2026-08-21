@@ -132,10 +132,7 @@ void undo_record_move(undo_buffer *buffer, int from_line, int from_col,
 }
 
 void undo_record_replace(undo_buffer *buffer, int line_number, int column,
-                         int old_length, int new_length,
-                         unsigned char *old_data, unsigned char *new_data) {
-  (void)new_length;
-  (void)new_data;
+                         int old_length, unsigned char *old_data) {
   if (!buffer)
     return;
 
@@ -186,18 +183,22 @@ static void undo_entry_init(undo_entry *entry, undo_action_type action,
   if (!entry)
     return;
 
-  memset(entry, 0, sizeof(undo_entry));
   entry->action = action;
   entry->timestamp = time(nullptr);
   entry->line_number = line_number;
   entry->column = column;
   entry->length = length;
+  entry->data = nullptr;
+  entry->line_before = nullptr;
+  entry->line_after = nullptr;
 
   if (data && length > 0) {
     entry->data = malloc(length + 1);
-    if (entry->data) {
-      memcpy(entry->data, data, length + 1);
+    if (!entry->data) {
+      return; // Early return if malloc fails
     }
+    memcpy(entry->data, data, length);
+    entry->data[length] = '\0';
   }
 }
 
@@ -240,7 +241,9 @@ static void undo_buffer_add(undo_buffer *buffer, undo_entry *entry) {
     undo_entry_cleanup(old);
     free(old);
     buffer->size--;
-    buffer->position = (buffer->position > 0) ? buffer->position - 1 : 0;
+    if (buffer->position > 0) {
+      buffer->position--;
+    }
   }
 
   if (!buffer->head) {
@@ -282,18 +285,11 @@ static void undo_apply_splice(undo_entry *entry) {
   if (!new_line)
     return;
 
-  int pos = 0;
-  for (int i = 0; i < entry->column && pos < line->line_length; i++) {
-    new_line[pos++] = line->line[i];
-  }
-
-  for (int i = 0; i < entry->length && pos < new_len; i++) {
-    new_line[pos++] = entry->data[i];
-  }
-
-  for (int i = entry->column; i < line->line_length && pos < new_len; i++) {
-    new_line[pos++] = line->line[i];
-  }
+  memcpy(new_line, line->line, entry->column);
+  memcpy(new_line + entry->column, entry->data, entry->length);
+  memcpy(new_line + entry->column + entry->length, line->line + entry->column,
+         line->line_length - entry->column);
+  pos = entry->column + entry->length + (line->line_length - entry->column);
 
   new_line[pos] = '\0';
 
@@ -319,15 +315,10 @@ static void undo_apply_remove(undo_entry *entry) {
   if (!new_line)
     return;
 
-  int pos = 0;
-  for (int i = 0; i < entry->column && pos < new_length; i++) {
-    new_line[pos++] = line->line[i];
-  }
-
-  for (int i = entry->column + entry->length;
-       i < line->line_length && pos < new_length; i++) {
-    new_line[pos++] = line->line[i];
-  }
+  memcpy(new_line, line->line, entry->column);
+  memcpy(new_line + entry->column, line->line + entry->column + entry->length,
+         line->line_length - entry->column - entry->length);
+  pos = entry->column + (line->line_length - entry->column - entry->length);
 
   new_line[pos] = '\0';
 
