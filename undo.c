@@ -10,11 +10,9 @@ static void undo_entry_init(undo_entry *entry, undo_action_type action,
                             unsigned char *data);
 static void undo_entry_cleanup(undo_entry *entry);
 static void undo_buffer_add(undo_buffer *buffer, undo_entry *entry);
-static void undo_record_action(undo_buffer *buffer, undo_action_type action,
-                               int line_number, int column, int length,
-                               unsigned char *data);
 static void undo_free_entries(undo_buffer *buffer);
 static struct text *undo_find_line(int line_number);
+static undo_entry *undo_advance(undo_buffer *buffer);
 static void undo_apply_splice(undo_entry *entry);
 static void undo_apply_remove(undo_entry *entry);
 static void undo_perform_move(undo_entry *entry);
@@ -60,20 +58,6 @@ void undo_cleanup(undo_buffer *buffer) {
   memset(buffer, 0, sizeof(undo_buffer));
 }
 
-void undo_begin_transaction(undo_buffer *buffer) {
-  if (!buffer)
-    return;
-
-  buffer->in_transaction = true;
-}
-
-void undo_end_transaction(undo_buffer *buffer) {
-  if (!buffer)
-    return;
-
-  buffer->in_transaction = false;
-}
-
 [[nodiscard]] bool undo_can_undo(undo_buffer *buffer) {
   if (!buffer)
     return false;
@@ -86,12 +70,18 @@ void undo_end_transaction(undo_buffer *buffer) {
   return buffer->current != nullptr && buffer->position < buffer->size - 1;
 }
 
+/* advance the current pointer one entry forward, returning the entry passed */
+static undo_entry *undo_advance(undo_buffer *buffer) {
+  undo_entry *entry = buffer->current;
+  buffer->current = entry->next;
+  return entry;
+}
+
 void undo_perform(undo_buffer *buffer) {
   if (!buffer || !undo_can_undo(buffer))
     return;
 
-  undo_entry *entry = buffer->current;
-  buffer->current = entry->next;
+  undo_entry *entry = undo_advance(buffer);
   buffer->position--;
 
   undo_apply_table[entry->action](entry);
@@ -104,16 +94,14 @@ void undo_redo(undo_buffer *buffer) {
   if (!buffer || !undo_can_redo(buffer))
     return;
 
-  undo_entry *entry = buffer->current->next;
-  buffer->current = entry;
+  undo_entry *entry = undo_advance(buffer);
   buffer->position++;
 
   undo_apply_table[entry->action](entry);
 }
 
-static void undo_record_action(undo_buffer *buffer, undo_action_type action,
-                               int line_number, int column, int length,
-                               unsigned char *data) {
+void undo_record(undo_buffer *buffer, undo_action_type action, int line_number,
+                 int column, int length, unsigned char *data) {
   if (!buffer)
     return;
 
@@ -123,16 +111,6 @@ static void undo_record_action(undo_buffer *buffer, undo_action_type action,
 
   undo_entry_init(entry, action, line_number, column, length, data);
   undo_buffer_add(buffer, entry);
-}
-
-void undo_record_insert(undo_buffer *buffer, int line_number, int column,
-                        int length, unsigned char *data) {
-  undo_record_action(buffer, UNDO_INSERT, line_number, column, length, data);
-}
-
-void undo_record_delete(undo_buffer *buffer, int line_number, int column,
-                        int length, unsigned char *data) {
-  undo_record_action(buffer, UNDO_DELETE, line_number, column, length, data);
 }
 
 void undo_record_move(undo_buffer *buffer, int from_line, int from_col,
@@ -171,16 +149,6 @@ void undo_record_replace(undo_buffer *buffer, int line_number, int column,
   undo_entry_init(entry, UNDO_REPLACE, line_number, column, old_length,
                   old_data);
   undo_buffer_add(buffer, entry);
-}
-
-void undo_record_cut(undo_buffer *buffer, int line_number, int column,
-                     int length, unsigned char *data) {
-  undo_record_action(buffer, UNDO_CUT, line_number, column, length, data);
-}
-
-void undo_record_paste(undo_buffer *buffer, int line_number, int column,
-                       int length, unsigned char *data) {
-  undo_record_action(buffer, UNDO_PASTE, line_number, column, length, data);
 }
 
 void undo_clear(undo_buffer *buffer) {

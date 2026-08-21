@@ -1,13 +1,25 @@
 #include "search.h"
 #include "ee.h"
-struct text *srch_line;  /* temporary pointer for search routine */
+struct text *srch_line;    /* temporary pointer for search routine */
 bool case_sen;             /* case sensitive search flag		*/
 unsigned char *srch_str;   /* pointer for search string		*/
 unsigned char *u_srch_str; /* pointer to non-case sensitive search	*/
 unsigned char *srch_1;     /* pointer to start of suspect string	*/
 unsigned char *srch_2;     /* pointer to next character of string	*/
 unsigned char *srch_3;
-[[nodiscard]] bool compare(const char *string1, const char *string2, bool sensitive) {
+
+/* create an uppercase duplicate of src */
+static unsigned char *dup_upper(unsigned char *src) {
+  unsigned char *dst = malloc(strlen((char *)src) + 1);
+  unsigned char *d = dst;
+  for (unsigned char *s = src; *s != '\0'; s++) {
+    *d++ = toupper(*s);
+  }
+  *d = '\0';
+  return dst;
+}
+[[nodiscard]] bool compare(const char *string1, const char *string2,
+                           bool sensitive) {
   const char *strng1 = string1;
   const char *strng2 = string2;
   bool equal = true;
@@ -101,25 +113,21 @@ unsigned char *srch_3;
       ee_wclrtoeol(com_win);
       ee_wrefresh(com_win);
     }
-    if (lines_moved == 0) {
+    if (lines_moved < 30) {
+      if (lines_moved != 0) {
+        move_rel('d', lines_moved);
+      }
       while (position < iter) {
         right(1);
       }
     } else {
-      if (lines_moved < 30) {
-        move_rel('d', lines_moved);
-        while (position < iter) {
-          right(1);
-        }
-      } else {
-        absolute_lin += lines_moved;
-        curr_line = srch_line;
-        point = srch_1;
-        position = iter;
-        scanline(point);
-        scr_pos = scr_horz;
-        midscreen((last_line / 2), point);
-      }
+      absolute_lin += lines_moved;
+      curr_line = srch_line;
+      point = srch_1;
+      position = iter;
+      scanline(point);
+      scr_pos = scr_horz;
+      midscreen((last_line / 2), point);
     }
   } else {
     if (display_message != 0) {
@@ -141,14 +149,8 @@ void search_prompt() {
   }
   srch_str = (unsigned char *)get_string(search_prompt_str, 0);
   gold = false;
-  srch_3 = srch_str;
-  srch_1 = u_srch_str = malloc(strlen((char *)srch_str) + 1);
-  while (*srch_3 != '\0') {
-    *srch_1 = toupper(*srch_3);
-    srch_1++;
-    srch_3++;
-  }
-  *srch_1 = '\0';
+  u_srch_str = dup_upper(srch_str);
+  srch_1 = u_srch_str + strlen((char *)u_srch_str);
   (void)search(1);
 }
 void replace_prompt() {
@@ -161,14 +163,8 @@ void replace_prompt() {
   if (u_srch_str != nullptr)
     free(u_srch_str);
   srch_str = (unsigned char *)search_term;
-  srch_3 = srch_str;
-  srch_1 = u_srch_str = malloc(strlen((char *)srch_str) + 1);
-  while (*srch_3 != '\0') {
-    *srch_1 = toupper(*srch_3);
-    srch_1++;
-    srch_3++;
-  }
-  *srch_1 = '\0';
+  u_srch_str = dup_upper(srch_str);
+  srch_1 = u_srch_str + strlen((char *)u_srch_str);
   int found = search(1);
   if (found) {
     int len = strlen((char *)search_term);

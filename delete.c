@@ -1,14 +1,66 @@
 #include "delete.h"
 #include "ee.h"
 #include "undo.h"
-struct text *dlt_line;   /* structure for info on deleted line	*/
+struct text *dlt_line; /* structure for info on deleted line	*/
 struct text *mark_line = nullptr;
 int mark_position = 0;
 char *clipboard_buf = nullptr;
-int d_wrd_len;    /* length of deleted word		*/
+int d_wrd_len;         /* length of deleted word		*/
 unsigned char *d_char; /* deleted character			*/
 unsigned char *d_word; /* deleted word				*/
 unsigned char *d_line; /* deleted line				*/
+
+/* total text length of the region from start through end */
+static int region_size(struct text *start_line, struct text *end_line) {
+  int size = end_line->line_length;
+  for (struct text *tl = start_line; tl && tl != end_line; tl = tl->next_line) {
+    size += tl->line_length;
+  }
+  return size;
+}
+
+/* copy the region's text into cb_ptr, returns pointer past last byte written */
+static char *copy_region_text(char *cb_ptr, struct text *start_line,
+                              int start_pos, struct text *end_line,
+                              int end_pos) {
+  if (start_line == end_line) {
+    memcpy(cb_ptr, start_line->line + start_pos - 1, end_pos - start_pos);
+    return cb_ptr + (end_pos - start_pos);
+  }
+  memcpy(cb_ptr, start_line->line + start_pos - 1,
+         start_line->line_length - start_pos);
+  cb_ptr += (start_line->line_length - start_pos);
+  *cb_ptr++ = '\n';
+  for (struct text *tl = start_line->next_line; tl && tl != end_line;
+       tl = tl->next_line) {
+    memcpy(cb_ptr, tl->line, tl->line_length - 1);
+    cb_ptr += (tl->line_length - 1);
+    *cb_ptr++ = '\n';
+  }
+  memcpy(cb_ptr, end_line->line, end_pos - 1);
+  return cb_ptr + (end_pos - 1);
+}
+
+/* walk the cursor to the end of the region if it isn't already there */
+static void goto_region_end(struct text *end_line, int end_pos) {
+  while (curr_line != end_line || position != end_pos) {
+    if (curr_line->line_number < end_line->line_number ||
+        (curr_line == end_line && position < end_pos)) {
+      right(1);
+    } else {
+      left(1);
+    }
+  }
+}
+
+/* backspace-delete del_len characters at the cursor */
+static void delete_region_chars(int del_len) {
+  in = 8; /* ASCII backspace */
+  for (int i = 0; i < del_len; i++) {
+    delete_char_at_cursor(1);
+  }
+}
+
 void update_line_numbers(struct text *line, int delta) {
   struct text *curr = line;
   while (curr != nullptr) {
@@ -67,9 +119,10 @@ void delete_char_at_cursor(int disp) {
       horiz_offset -= 8;
       midscreen(scr_vert, point);
     }
-    
+
     if (undo_enabled) {
-      undo_record_delete(&undo_state, curr_line->line_number, position, del_width, d_char);
+      undo_record(&undo_state, UNDO_DELETE, curr_line->line_number, position,
+                  del_width, d_char);
     }
   } else if (curr_line->prev_line != nullptr) {
     text_changes = true;
@@ -150,7 +203,8 @@ void set_mark() {
   }
   ee_wrefresh(com_win);
   clear_com_win = true;
-  if (info_window) paint_info_win();
+  if (info_window)
+    paint_info_win();
 }
 void copy_region(bool cut) {
   if (!mark_line) {
@@ -173,7 +227,8 @@ void copy_region(bool cut) {
   }
   if (!valid) {
     mark_line = nullptr;
-      if (info_window) paint_info_win();
+    if (info_window)
+      paint_info_win();
     ee_wmove(com_win, 0, 0);
     ee_wclrtoeol(com_win);
     ee_wprintw(com_win, "Mark invalid (line deleted).");
@@ -200,37 +255,13 @@ void copy_region(bool cut) {
     end_pos = mark_position;
   }
   /* Calculate buffer size */
-  int est_size = 0;
-  struct text *tl = start_line;
-  while (tl && tl != end_line) {
-    est_size += tl->line_length;
-    tl = tl->next_line;
-  }
-  est_size += end_line->line_length;
+  int est_size = region_size(start_line, end_line);
   if (clipboard_buf)
     free(clipboard_buf);
   clipboard_buf = malloc(est_size + 1);
-  char *cb_ptr = clipboard_buf;
   /* Copy into clipboard buffer */
-  tl = start_line;
-  if (start_line == end_line) {
-    memcpy(cb_ptr, start_line->line + start_pos - 1, end_pos - start_pos);
-    cb_ptr += (end_pos - start_pos);
-  } else {
-    memcpy(cb_ptr, start_line->line + start_pos - 1,
-           start_line->line_length - start_pos);
-    cb_ptr += (start_line->line_length - start_pos);
-    *cb_ptr++ = '\n';
-    tl = tl->next_line;
-    while (tl && tl != end_line) {
-      memcpy(cb_ptr, tl->line, tl->line_length - 1);
-      cb_ptr += (tl->line_length - 1);
-      *cb_ptr++ = '\n';
-      tl = tl->next_line;
-    }
-    memcpy(cb_ptr, end_line->line, end_pos - 1);
-    cb_ptr += (end_pos - 1);
-  }
+  char *cb_ptr =
+      copy_region_text(clipboard_buf, start_line, start_pos, end_line, end_pos);
   *cb_ptr = '\0';
   ee_wmove(com_win, 0, 0);
   ee_wclrtoeol(com_win);
@@ -240,26 +271,18 @@ void copy_region(bool cut) {
   /* If cutting, simulate backspacing to delete the region */
   if (cut) {
     /* Move cursor to end of the region if it isn't already */
-    while (curr_line != end_line || position != end_pos) {
-      if (curr_line->line_number < end_line->line_number ||
-          (curr_line == end_line && position < end_pos)) {
-        right(1);
-      } else {
-        left(1);
-      }
-    }
+    goto_region_end(end_line, end_pos);
     int del_len = cb_ptr - clipboard_buf;
-    for (int i = 0; i < del_len; i++) {
-      in = 8; /* ASCII backspace */
-      delete_char_at_cursor(1);
-    }
-    
+    delete_region_chars(del_len);
+
     if (undo_enabled) {
-      undo_record_cut(&undo_state, start_line->line_number, start_pos, del_len, clipboard_buf);
+      undo_record(&undo_state, UNDO_CUT, start_line->line_number, start_pos,
+                  del_len, clipboard_buf);
     }
   }
   mark_line = nullptr;
-  if (info_window) paint_info_win();
+  if (info_window)
+    paint_info_win();
 }
 void paste_region() {
   if (!clipboard_buf) {
@@ -270,9 +293,9 @@ void paste_region() {
     clear_com_win = true;
     return;
   }
-  
+
   int paste_len = strlen(clipboard_buf);
-  
+
   char *ptr = clipboard_buf;
   while (*ptr) {
     if (*ptr == '\n') {
@@ -282,9 +305,10 @@ void paste_region() {
     }
     ptr++;
   }
-  
+
   if (undo_enabled && paste_len > 0) {
-    undo_record_paste(&undo_state, curr_line->line_number, position, paste_len, (unsigned char *)clipboard_buf);
+    undo_record(&undo_state, UNDO_PASTE, curr_line->line_number, position,
+                paste_len, (unsigned char *)clipboard_buf);
   }
 }
 void append_region(bool cut) {
@@ -310,7 +334,8 @@ void append_region(bool cut) {
     valid |= (chk == mark_line);
     chk = chk->next_line;
   }
-  if (info_window) paint_info_win();
+  if (info_window)
+    paint_info_win();
   mark_line = valid ? mark_line : nullptr;
   if (!valid)
     return;
@@ -325,12 +350,7 @@ void append_region(bool cut) {
   int end_pos = swap ? mark_position : position;
 
   /* Calculate new region size */
-  int est_size = end_line->line_length;
-  struct text *tl = start_line;
-  while (tl && tl != end_line) {
-    est_size += tl->line_length;
-    tl = tl->next_line;
-  }
+  int est_size = region_size(start_line, end_line);
 
   /* Reallocate existing clipboard to hold the appended data */
   int current_cb_len = strlen(clipboard_buf);
@@ -339,30 +359,9 @@ void append_region(bool cut) {
     return;
   clipboard_buf = new_cb;
 
-  char *cb_ptr = clipboard_buf + current_cb_len;
-
   /* Copy into clipboard buffer (reusing optimized copy logic) */
-  bool single_line = (start_line == end_line);
-  int copy_len =
-      single_line ? (end_pos - start_pos) : (start_line->line_length - start_pos);
-
-  memcpy(cb_ptr, start_line->line + start_pos - 1, copy_len);
-  cb_ptr += copy_len;
-  *cb_ptr = '\n';
-  cb_ptr += !single_line;
-
-  tl = start_line->next_line;
-  while (!single_line && tl && tl != end_line) {
-    memcpy(cb_ptr, tl->line, tl->line_length - 1);
-    cb_ptr += (tl->line_length - 1);
-    *cb_ptr++ = '\n';
-    tl = tl->next_line;
-  }
-
-  if (!single_line) {
-    memcpy(cb_ptr, end_line->line, end_pos - 1);
-    cb_ptr += (end_pos - 1);
-  }
+  char *cb_ptr = copy_region_text(clipboard_buf + current_cb_len, start_line,
+                                  start_pos, end_line, end_pos);
   *cb_ptr = '\0';
 
   ee_wmove(com_win, 0, 0);
@@ -373,18 +372,13 @@ void append_region(bool cut) {
 
   /* Simulate backspacing for cuts */
   if (cut) {
-    while (curr_line != end_line || position != end_pos) {
-      bool go_right = (curr_line->line_number < end_line->line_number) ||
-                      (curr_line == end_line && position < end_pos);
-      go_right ? right(1) : left(1);
-    }
+    goto_region_end(end_line, end_pos);
     int del_len = cb_ptr - (clipboard_buf + current_cb_len);
-    in = 8;
-    for (int i = 0; i < del_len; i++)
-      delete_char_at_cursor(1);
+    delete_region_chars(del_len);
   }
   mark_line = nullptr;
-  if (info_window) paint_info_win();
+  if (info_window)
+    paint_info_win();
 }
 void del_char() {
   in = 8;                                /* backspace */
@@ -479,9 +473,10 @@ void del_word() {
   d_char[2] = tmp_char[2];
   text_changes = true;
   formatted = false;
-  
+
   if (undo_enabled) {
-    undo_record_delete(&undo_state, curr_line->line_number, position, d_wrd_len, d_word);
+    undo_record(&undo_state, UNDO_DELETE, curr_line->line_number, position,
+                d_wrd_len, d_word);
   }
 }
 void undel_word() {
@@ -499,7 +494,8 @@ void undel_word() {
     point = resiz_line(d_wrd_len, curr_line, position);
   }
   int tmp_size;
-  if (ckd_add(&tmp_size, curr_line->line_length, d_wrd_len)) return;
+  if (ckd_add(&tmp_size, curr_line->line_length, d_wrd_len))
+    return;
   tmp_ptr = tmp_space = malloc(tmp_size);
   d_word_ptr = d_word;
   temp = 1;
@@ -560,9 +556,10 @@ void del_line() {
     delete_char_at_cursor(0);
   }
   text_changes = true;
-  
+
   if (undo_enabled) {
-    undo_record_delete(&undo_state, curr_line->line_number, position, copy_len, d_line);
+    undo_record(&undo_state, UNDO_DELETE, curr_line->line_number, position,
+                copy_len, d_line);
   }
 }
 void undel_line() {

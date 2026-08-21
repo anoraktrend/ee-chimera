@@ -61,13 +61,17 @@
 #endif
 
 #include "ee.h"
-#include "lsp.h"
 #include "delete.h"
-#include "search.h"
-#include "format.h"
-#include "menu.h"
 #include "fileio.h"
+#include "format.h"
+#include "input.h"
+#include "lsp.h"
+#include "menu.h"
+#include "render.h"
+#include "search.h"
+#include "state.h"
 #include "theme.h"
+#include "undo.h"
 
 static_assert(MAX_WORD_LEN > 0, "MAX_WORD_LEN must be positive");
 static_assert(MAX_IN_STRING > 0, "MAX_IN_STRING must be positive");
@@ -96,16 +100,11 @@ void top(void);
 void bottom(void);
 void right(int no_verify);
 void left(int no_verify);
-void prev_word(void);
-void adv_word(void);
 void command_prompt(void);
 void gold_toggle(void);
 void gold_append(void);
 void gold_search_reverse(void);
 void resize_info_win(void);
-#ifdef HAS_ICU
-[[maybe_unused]] static int u_char_width(UChar32 c, int column);
-#endif
 void insert(int character);
 char *ee_copyright_message = "Copyright (c) 1986, 1990, 1991, 1992, 1993, "
                              "1994, 1995, 1996, 2009 Hugh Mahon ";
@@ -163,18 +162,16 @@ ssize_t strscpy(char *dest, const char *src, size_t count) {
   return -E2BIG;
 }
 
-// Tree-Sitter C language
-struct text *first_line; /* first line of current buffer		*/
-struct text *curr_line;  /* current line cursor is on		*/
-struct text *tmp_line;   /* temporary line pointer		*/
+// Global state (declared in state.h)
+extern struct text *first_line;
+extern struct text *curr_line;
+extern struct text *tmp_line;
+extern struct files *top_of_stack;
+extern undo_buffer undo_state;
 
-struct files *top_of_stack = nullptr;
-
-undo_buffer undo_state;
-
-static constexpr int char_len_table[256] = {
-    [0 ... 8] = 2,   [9] = -1,        [10 ... 31] = 2, [32 ... 126] = 1,
-    [127] = 2,       [128 ... 255] = 1};
+static constexpr int char_len_table[256] = {[0 ... 8] = 2,   [9] = -1,
+                                            [10 ... 31] = 2, [32 ... 126] = 1,
+                                            [127] = 2,       [128 ... 255] = 1};
 
 void cleanup(void);
 const char *get_key_name(int i);
@@ -211,11 +208,7 @@ int libedit_getc(EditLine *e, wchar_t *cp) {
 
 #endif
 
-
 #ifdef HAS_LSP
-
-
-
 
 #endif
 
@@ -229,51 +222,48 @@ int scr_vert;     /* vertical position on screen		*/
 int scr_horz;     /* horizontal position on screen	*/
 int absolute_lin; /* number of lines from top		*/
 int tmp_vert, tmp_horz;
-bool edit;                 /* continue executing while true	*/
-bool gold;                 /* 'gold' function key pressed		*/
-int last_line;             /* last line for text display		*/
-int last_col;              /* last column for text display		*/
-int horiz_offset = 0;      /* offset from left edge of text	*/
-bool clear_com_win;        /* flag to indicate com_win needs clearing */
-bool text_changes = false; /* indicate changes have been made to text */
-bool info_window = true;   /* flag to indicate if help window visible */
-int info_type =
-    CONTROL_KEYS;               /* flag to indicate type of info to display */
-bool expand_tabs = true; /* flag for expanding tabs		*/
+bool edit;                    /* continue executing while true	*/
+bool gold;                    /* 'gold' function key pressed		*/
+int last_line;                /* last line for text display		*/
+int last_col;                 /* last column for text display		*/
+int horiz_offset = 0;         /* offset from left edge of text	*/
+bool clear_com_win;           /* flag to indicate com_win needs clearing */
+bool text_changes = false;    /* indicate changes have been made to text */
+bool info_window = true;      /* flag to indicate if help window visible */
+int info_type = CONTROL_KEYS; /* flag to indicate type of info to display */
+bool expand_tabs = true;      /* flag for expanding tabs		*/
 bool formatted = false;
 bool pasting_mode = false;
 bool formatting_in_progress = false;
-bool profiling_mode = false;   /* flag indicating paragraph formatted	*/
+bool profiling_mode = false; /* flag indicating paragraph formatted	*/
 #ifdef HAS_AUTOFORMAT
 bool auto_format = false; /* flag for auto_format mode		*/
 #endif
-bool restricted = false;  /* flag to indicate restricted mode	*/
+bool restricted = false; /* flag to indicate restricted mode	*/
 bool undo_enabled = true;
 char theme_name[128] = "";
-bool eightbit = true;     /* eight bit character flag		*/
-int local_LINES = 0;      /* copy of LINES, to detect when win resizes */
-int local_COLS = 0;       /* copy of COLS, to detect when win resizes  */
-bool curses_initialized =
-    false; /* flag indicating if curses has been started*/
-bool emacs_keys_mode =
-    false;                      /* mode for if emacs key binings are used    */
+bool eightbit = true;            /* eight bit character flag		*/
+int local_LINES = 0;             /* copy of LINES, to detect when win resizes */
+int local_COLS = 0;              /* copy of COLS, to detect when win resizes  */
+bool curses_initialized = false; /* flag indicating if curses has been started*/
+bool emacs_keys_mode = false;    /* mode for if emacs key binings are used    */
 bool vi_keys_mode = false;
 bool vi_insert_mode = false;
 bool ee_chinese = false; /* allows handling of multi-byte characters  */
-                                /* by checking for high bit in a byte the    */
-                                /* code recognizes a two-byte character      */
-                                /* sequence				     */
+                         /* by checking for high bit in a byte the    */
+                         /* code recognizes a two-byte character      */
+                         /* sequence				     */
 
-unsigned char *point;      /* points to current position in line	*/
-char *print_command = (char *)"lpr"; /* string to use for the print command 	*/
+unsigned char *point; /* points to current position in line	*/
+char *print_command =
+    (char *)"lpr";             /* string to use for the print command 	*/
 char *start_at_line = nullptr; /* move to this line at start of session*/
-int in; /* input character			*/
-
+int in;                        /* input character			*/
 
 static char *const table[] = {"^@", "^A", "^B", "^C", "^D",  "^E", "^F", "^G",
-                        "^H", "\t", "^J", "^K", "^L",  "^M", "^N", "^O",
-                        "^P", "^Q", "^R", "^S", "^T",  "^U", "^V", "^W",
-                        "^X", "^Y", "^Z", "^[", "^\\", "^]", "^^", "^_"};
+                              "^H", "\t", "^J", "^K", "^L",  "^M", "^N", "^O",
+                              "^P", "^Q", "^R", "^S", "^T",  "^U", "^V", "^W",
+                              "^X", "^Y", "^Z", "^[", "^\\", "^]", "^^", "^_"};
 
 WINDOW *com_win;
 WINDOW *text_win;
@@ -304,13 +294,9 @@ WINDOW *info_win;
  |	allocate space here for the strings that will be in the menu
  */
 
-
-
 #define MAX_INFO_LINES 12
 char *dynamic_info_lines[MAX_INFO_LINES];
 int num_info_lines = 0;
-
-
 
 struct menu_entries search_menu[] = {
     {"", nullptr, nullptr, nullptr, nullptr, 0},
@@ -325,8 +311,6 @@ struct menu_entries spell_menu[] = {
     {"", nullptr, nullptr, nullptr, ispell_op, -1},
 #endif
     {nullptr, nullptr, nullptr, nullptr, nullptr, -1}};
-
-
 
 char *help_text[23];
 char *control_keys[5];
@@ -511,7 +495,8 @@ struct command_map commands_table[] = {
     {"mark", control_mark, "set mark for region", "mark"},
     {"search", control_search, "search for string", "search"},
     {"search_reverse", gold_search_reverse, "search reverse", "reverse"},
-    {"search_prompt", control_search_prompt, "prompt for search string", "srch prmpt"},
+    {"search_prompt", control_search_prompt, "prompt for search string",
+     "srch prmpt"},
     {"replace_prompt", control_replace_prompt, "prompt for replace string",
      "repl prmpt"},
     {"command_prompt", control_command_prompt, "enter command mode", "command"},
@@ -561,7 +546,7 @@ void bind_key(const char *key_str, const char *cmd_name, int table_type) {
       else if (base_key >= 'a' && base_key <= 'z')
         key_idx = base_key - 'a' + 1;
     } else if (mod == 'S') { // Shift
-      key_idx = base_key; // Standard key, but we can differentiate if needed
+      key_idx = base_key;    // Standard key, but we can differentiate if needed
     }
   } else if (strncmp(key_str, "code:", 5) == 0) {
     key_idx = atoi(key_str + 5);
@@ -590,7 +575,6 @@ void bind_key(const char *key_str, const char *cmd_name, int table_type) {
   target_table[key_idx] = handler;
 }
 
-
 static void control_gold_esc(void) {
 #ifdef HAS_MENU
   menu_op(main_menu);
@@ -607,42 +591,62 @@ void gold_toggle(void) {
 }
 void no_op(void) {}
 
-control_handler base_control_table[1024] = {
-    [1] = control_right,      [2] = bottom,
-    [3] = control_copy,       [4] = bol,
-    [5] = command_prompt,     [6] = control_search,
-    [7] = gold_toggle,        [8] = control_backspace,
-    [10] = control_newline,   [11] = del_char,
-    [12] = del_line,          [13] = control_newline,
-    [14] = control_next_page, [15] = eol,
-    [16] = control_prev_page, [18] = redraw,
-    [20] = top,               [21] = set_mark,
-    [22] = paste_region,      [23] = del_word,
-    [24] = control_cut,       [25] = adv_word,
-    [26] = replace_prompt,    [27] = control_esc};
+control_handler base_control_table[1024] = {[1] = control_right,
+                                            [2] = bottom,
+                                            [3] = control_copy,
+                                            [4] = bol,
+                                            [5] = command_prompt,
+                                            [6] = control_search,
+                                            [7] = gold_toggle,
+                                            [8] = control_backspace,
+                                            [10] = control_newline,
+                                            [11] = del_char,
+                                            [12] = del_line,
+                                            [13] = control_newline,
+                                            [14] = control_next_page,
+                                            [15] = eol,
+                                            [16] = control_prev_page,
+                                            [18] = redraw,
+                                            [20] = top,
+                                            [21] = set_mark,
+                                            [22] = paste_region,
+                                            [23] = del_word,
+                                            [24] = control_cut,
+                                            [25] = adv_word,
+                                            [26] = replace_prompt,
+                                            [27] = control_esc};
 
 control_handler gold_control_table[1024] = {
-    [2] = gold_append,        [3] = del_line,
-    [6] = search_prompt,      [11] = undel_char,
-    [12] = undel_line,        [18] = gold_search_reverse,
-    [21] = set_mark,          [22] = control_search,
-    [23] = undel_word,        [24] = Format,
-    [25] = prev_word,         [26] = replace_prompt,
+    [2] = gold_append,      [3] = del_line,        [6] = search_prompt,
+    [11] = undel_char,      [12] = undel_line,     [18] = gold_search_reverse,
+    [21] = set_mark,        [22] = control_search, [23] = undel_word,
+    [24] = Format,          [25] = prev_word,      [26] = replace_prompt,
     [27] = control_gold_esc};
 
-control_handler emacs_control_table[1024] = {
-    [1] = bol,                [2] = control_left,
-    [3] = command_prompt,     [4] = del_char,
-    [5] = eol,                [6] = control_right,
-    [7] = control_prev_page,  [8] = control_backspace,
-    [10] = undel_char,        [11] = del_line,
-    [12] = undel_line,        [13] = control_newline,
-    [14] = control_down,      [15] = control_insert_ascii,
-    [16] = control_up,        [18] = undel_word,
-    [20] = top,               [21] = bottom,
-    [22] = control_next_page, [23] = del_word,
-    [24] = control_search,    [25] = search_prompt,
-    [26] = adv_word,          [27] = control_esc};
+control_handler emacs_control_table[1024] = {[1] = bol,
+                                             [2] = control_left,
+                                             [3] = command_prompt,
+                                             [4] = del_char,
+                                             [5] = eol,
+                                             [6] = control_right,
+                                             [7] = control_prev_page,
+                                             [8] = control_backspace,
+                                             [10] = undel_char,
+                                             [11] = del_line,
+                                             [12] = undel_line,
+                                             [13] = control_newline,
+                                             [14] = control_down,
+                                             [15] = control_insert_ascii,
+                                             [16] = control_up,
+                                             [18] = undel_word,
+                                             [20] = top,
+                                             [21] = bottom,
+                                             [22] = control_next_page,
+                                             [23] = del_word,
+                                             [24] = control_search,
+                                             [25] = search_prompt,
+                                             [26] = adv_word,
+                                             [27] = control_esc};
 
 /* beginning of main program          */
 int main(int argc, char *argv[]) {
@@ -662,7 +666,8 @@ int main(int argc, char *argv[]) {
   }
 
   /* Always read from (and write to) a terminal. */
-  if (!profiling_mode && ((isatty(STDIN_FILENO) == 0) || (isatty(STDOUT_FILENO) == 0))) {
+  if (!profiling_mode &&
+      ((isatty(STDIN_FILENO) == 0) || (isatty(STDOUT_FILENO) == 0))) {
     fprintf(stderr, "ee's standard input and output must be a terminal\n");
     exit(1);
   }
@@ -703,8 +708,10 @@ int main(int argc, char *argv[]) {
     get_options(argc, argv);
   }
   if (profiling_mode) {
-    if (LINES == 0) LINES = 24;
-    if (COLS == 0) COLS = 80;
+    if (LINES == 0)
+      LINES = 24;
+    if (COLS == 0)
+      COLS = 80;
   }
   set_up_term();
   apply_startup_theme();
@@ -749,19 +756,24 @@ int main(int argc, char *argv[]) {
         if (strcmp(buf, ".") == 0) {
           ed_insert_mode = 0;
         } else {
-          for (int i = 0; buf[i]; i++) insert(buf[i]);
+          for (int i = 0; buf[i]; i++)
+            insert(buf[i]);
           insert('\n');
         }
       } else {
-        if (strcmp(buf, "q") == 0 || strcmp(buf, "quit") == 0 || strcmp(buf, ":quit") == 0) {
+        if (strcmp(buf, "q") == 0 || strcmp(buf, "quit") == 0 ||
+            strcmp(buf, ":quit") == 0) {
           edit = false;
-        } else if (strcmp(buf, "a") == 0 || strcmp(buf, "i") == 0 || strcmp(buf, "c") == 0) {
-          if (buf[0] == 'c') delete_char_at_cursor(1); // very basic change
+        } else if (strcmp(buf, "a") == 0 || strcmp(buf, "i") == 0 ||
+                   strcmp(buf, "c") == 0) {
+          if (buf[0] == 'c')
+            delete_char_at_cursor(1); // very basic change
           ed_insert_mode = 1;
         } else if (strcmp(buf, "d") == 0) {
           del_line();
         } else if (strcmp(buf, "w") == 0) {
-          if (in_file_name) write_file(in_file_name, false);
+          if (in_file_name)
+            write_file(in_file_name, false);
         } else if (buf[0] == 'w' && buf[1] == ' ') {
           write_file(buf + 2, false);
         } else if (buf[0] == ':') {
@@ -770,7 +782,8 @@ int main(int argc, char *argv[]) {
           command(buf); // Fallback
         }
       }
-      if (!edit) break;
+      if (!edit)
+        break;
     }
     cleanup();
     return 0;
@@ -794,11 +807,12 @@ int main(int argc, char *argv[]) {
 #ifdef HAS_NCURSESW
     wint_t wch;
     int res;
-    
+
     // Set a small timeout to detect if more characters are waiting (paste)
-    if (!profiling_mode) wtimeout(text_win, 10);
+    if (!profiling_mode)
+      wtimeout(text_win, 10);
     res = wget_wch(text_win, &wch);
-    
+
     if (res == ERR) {
       pasting_mode = false;
       if (errno == EINTR)
@@ -811,7 +825,7 @@ int main(int argc, char *argv[]) {
       }
       continue;
     }
-    
+
     // Check if another character is immediately available
     wtimeout(text_win, 0);
     wint_t next_wch;
@@ -821,7 +835,8 @@ int main(int argc, char *argv[]) {
     } else {
       pasting_mode = false;
     }
-    if (!profiling_mode) wtimeout(text_win, -1); // Restore blocking
+    if (!profiling_mode)
+      wtimeout(text_win, -1); // Restore blocking
 
     in = wch;
 #else
@@ -922,9 +937,11 @@ int main(int argc, char *argv[]) {
 /* resize the line to length + factor*/
 unsigned char *resiz_line(int factor, struct text *restrict rline, int rpos) {
   int new_max = rline->max_length + factor;
-  if (ckd_add(&new_max, rline->max_length, factor)) return nullptr;
+  if (ckd_add(&new_max, rline->max_length, factor))
+    return nullptr;
   unsigned char *new_line = realloc(rline->line, new_max);
-  if (!new_line) return nullptr;
+  if (!new_line)
+    return nullptr;
   rline->line = new_line;
   rline->max_length = new_max;
   return rline->line + rpos - 1;
@@ -1045,23 +1062,24 @@ void insert(int character) {
   }
 
 #ifdef HAS_AUTOFORMAT
-  if (auto_format && (character == ' ') && (!formatted) && !formatting_in_progress && !pasting_mode) {
+  if (auto_format && (character == ' ') && (!formatted) &&
+      !formatting_in_progress && !pasting_mode) {
     formatting_in_progress = true;
     Auto_Format();
     formatting_in_progress = false;
-  } else 
+  } else
 #endif
-  if ((character != ' ') && (character != '\t')) {
+      if ((character != ' ') && (character != '\t')) {
     formatted = false;
   }
 
   draw_line(scr_vert, scr_horz, curr_line, position);
-  
+
   if (undo_enabled) {
-    undo_record_insert(&undo_state, curr_line->line_number, position, utf8_len, (unsigned char *)utf8_buf);
+    undo_record(&undo_state, UNDO_INSERT, curr_line->line_number, position,
+                utf8_len, (unsigned char *)utf8_buf);
   }
 }
-
 
 /* delete character		*/
 
@@ -1080,8 +1098,7 @@ void insert(int character) {
   return 1;
 }
 
-int scanline_step(unsigned char *ptr, const unsigned char *pos,
-                         int temp) {
+int scanline_step(unsigned char *ptr, const unsigned char *pos, int temp) {
   int current_temp = temp;
   unsigned char *current_ptr = (unsigned char *)ptr;
   while (current_ptr < pos) {
@@ -1131,64 +1148,7 @@ void scanline(const unsigned char *pos) {
   }
 }
 
-/* give the number of spaces to shift	*/
-int tabshift(int temp_int) {
-  return 8 - (temp_int & 7);
-}
 
-int out_char(WINDOW * restrict window, int character, int column) {
-  int i1;
-  int i2;
-  char *string;
-  char string2[16];
-
-  if (character == TAB) {
-    i1 = tabshift(column);
-    for (i2 = 0; (i2 < i1) && (((column + i2 + 1) - horiz_offset) < last_col);
-         i2++) {
-      ee_waddch(window, ' ');
-    }
-    return i1;
-  }
-  if ((character >= 0) && (character < 32)) {
-    string = table[character];
-  } else if (character == 127) {
-    string = "^?";
-  } else if (character > 127) {
-    if (!eightbit) {
-      snprintf(string2, sizeof(string2), "<%d>", (character < 0) ? (character + 256) : character);
-      string = string2;
-    } else {
-      ee_waddch(window, (unsigned char)character);
-      return 1;
-    }
-  } else {
-    ee_waddch(window, (unsigned char)character);
-    return 1;
-  }
-  for (i2 = 0;
-       (string[i2] != '\0') && (((column + i2 + 1) - horiz_offset) < last_col);
-       i2++) {
-    ee_waddch(window, (unsigned char)string[i2]);
-  }
-  return (strlen(string));
-}
-
-/* return the length of the character   */
-int len_char(int character, int column) {
-  unsigned char c = (unsigned char)character;
-  int len = char_len_table[c];
-
-  // If eightbit is off and it's high-bit, it's 5 (e.g. <255>)
-  bool high_bit_not_127 = (c > 126) & (c != 127);
-  bool replace_with_5 = (!eightbit) & high_bit_not_127;
-
-  len = (replace_with_5 * 5) + (!replace_with_5 * len);
-
-  // Branchless selection for tab: if c is TAB, use tabshift, else use len
-  int is_tab = (c == '\t');
-  return (is_tab * tabshift(column)) + (!is_tab * len);
-}
 
 #ifdef HAS_TREESITTER
 [[maybe_unused]] static int get_node_attribute(int line, int col) {
@@ -1286,7 +1246,8 @@ void draw_line(int vertical, int horiz, struct text *restrict line, int t_pos) {
     }
 #endif
 
-    if (text_win != nullptr) wattron(text_win, attr);
+    if (text_win != nullptr)
+      wattron(text_win, attr);
 #ifdef HAS_ICU
     if (ee_chinese) {
       int32_t i = 0;
@@ -1341,7 +1302,8 @@ void draw_line(int vertical, int horiz, struct text *restrict line, int t_pos) {
     posit++;
     temp++;
 #endif
-    if (text_win != nullptr) wattroff(text_win, attr);
+    if (text_win != nullptr)
+      wattroff(text_win, attr);
   }
   if (column < last_col) {
     ee_wclrtoeol(text_win);
@@ -1378,9 +1340,11 @@ void insert_line(int disp) {
     size_t split_len = curr_line->line_length - temp_pos2 + 1;
     if (split_len > (size_t)temp_nod->max_length) {
       int new_max;
-      if (ckd_add(&new_max, (int)split_len, 10)) return;
+      if (ckd_add(&new_max, (int)split_len, 10))
+        return;
       unsigned char *new_line = realloc(temp_nod->line, new_max);
-      if (!new_line) return;
+      if (!new_line)
+        return;
       temp_nod->line = new_line;
       temp_nod->max_length = new_max;
     }
@@ -1474,27 +1438,78 @@ void prev_word() {
 
 void vi_command(int c) {
   switch (c) {
-    case 'h': left(1); break;
-    case 'j': down(); break;
-    case 'k': up(); break;
-    case 'l': right(1); break;
-    case 'i': vi_insert_mode = true; break;
-    case 'I': bol(); vi_insert_mode = true; break;
-    case 'a': right(1); vi_insert_mode = true; break;
-    case 'A': eol(); vi_insert_mode = true; break;
-    case 'o': eol(); control_newline(); vi_insert_mode = true; break;
-    case 'O': bol(); control_newline(); up(); vi_insert_mode = true; break;
-    case 'x': delete_char_at_cursor(1); break;
-    case 'X': left(1); delete_char_at_cursor(1); break;
-    case '0': bol(); break;
-    case '$': eol(); break;
-    case 'g': top(); break;
-    case 'G': bottom(); break;
-    case 'w': adv_word(); break;
-    case 'b': prev_word(); break;
-    case 'u': undel_char(); break;
-    case ':': command_prompt(); break;
-    case '/': search_prompt(); break;
+  case 'h':
+    left(1);
+    break;
+  case 'j':
+    down();
+    break;
+  case 'k':
+    up();
+    break;
+  case 'l':
+    right(1);
+    break;
+  case 'i':
+    vi_insert_mode = true;
+    break;
+  case 'I':
+    bol();
+    vi_insert_mode = true;
+    break;
+  case 'a':
+    right(1);
+    vi_insert_mode = true;
+    break;
+  case 'A':
+    eol();
+    vi_insert_mode = true;
+    break;
+  case 'o':
+    eol();
+    control_newline();
+    vi_insert_mode = true;
+    break;
+  case 'O':
+    bol();
+    control_newline();
+    up();
+    vi_insert_mode = true;
+    break;
+  case 'x':
+    delete_char_at_cursor(1);
+    break;
+  case 'X':
+    left(1);
+    delete_char_at_cursor(1);
+    break;
+  case '0':
+    bol();
+    break;
+  case '$':
+    eol();
+    break;
+  case 'g':
+    top();
+    break;
+  case 'G':
+    bottom();
+    break;
+  case 'w':
+    adv_word();
+    break;
+  case 'b':
+    prev_word();
+    break;
+  case 'u':
+    undel_char();
+    break;
+  case ':':
+    command_prompt();
+    break;
+  case '/':
+    search_prompt();
+    break;
   }
 }
 
@@ -2070,20 +2085,25 @@ char *get_string(char *prompt, int advance) {
     // libedit needs to know the prompt. We've already printed it via ncurses
     // but we can also set it in libedit if we want it to handle redraws.
     // For now, we'll just use el_gets.
-    
+
     // We need to temporarily leave curses mode so libedit can use the terminal
-    if(!profiling_mode) def_prog_mode();
-    if(!profiling_mode) endwin();
-    
+    if (!profiling_mode)
+      def_prog_mode();
+    if (!profiling_mode)
+      endwin();
+
     // Print prompt again since we just did endwin
     printf("\r%s", prompt);
     fflush(stdout);
 
     line = el_gets(el, &count);
-    
-    if(!profiling_mode) reset_prog_mode();
-    if(!profiling_mode) refresh();
-    if(!profiling_mode) touchwin(text_win);
+
+    if (!profiling_mode)
+      reset_prog_mode();
+    if (!profiling_mode)
+      refresh();
+    if (!profiling_mode)
+      touchwin(text_win);
     ee_wrefresh(text_win);
 
     if (line != nullptr && count > 0) {
@@ -2091,9 +2111,11 @@ char *get_string(char *prompt, int advance) {
       strscpy(string, line, count + 1);
       // Remove trailing newline
       char *nl = strchr(string, '\n');
-      if (nl) *nl = '\0';
+      if (nl)
+        *nl = '\0';
       nl = strchr(string, '\r');
-      if (nl) *nl = '\0';
+      if (nl)
+        *nl = '\0';
 
       if (string[0] != '\0') {
         HistEvent ev;
@@ -2246,8 +2268,8 @@ void goto_line(char *cmd_str) {
 }
 
 /* walk count lines in the given direction, reporting how far we went */
-static struct text *walk_lines(struct text *line, int count,
-                               int *actual_count, bool const forward) {
+static struct text *walk_lines(struct text *line, int count, int *actual_count,
+                               bool const forward) {
   struct text *curr = line;
   int i = 0;
   while (curr != nullptr && i < count &&
@@ -2369,7 +2391,8 @@ void get_options(int numargs, char *arguments[]) {
 /* read specified file into current buffer	*/
 
 /* read string and split into lines */
-void get_line(int length, unsigned char *restrict in_string, int *restrict append) {
+void get_line(int length, unsigned char *restrict in_string,
+              int *restrict append) {
   unsigned char *str1;
   unsigned char *str2;
   int num;            /* offset from start of string		*/
@@ -2449,7 +2472,8 @@ void draw_screen() /* redraw the screen from current postion       */
 int quit(int noverify) {
   char *ans;
 
-  if(!profiling_mode) touchwin(text_win);
+  if (!profiling_mode)
+    touchwin(text_win);
   ee_wrefresh(text_win);
   if (text_changes && (noverify == 0)) {
     ans = get_string(changes_made_prompt, 1);
@@ -2466,7 +2490,8 @@ int quit(int noverify) {
     }
     ee_wrefresh(com_win);
     resetty();
-    if(!profiling_mode) endwin();
+    if (!profiling_mode)
+      endwin();
     putchar('\n');
     cleanup();
     exit(0);
@@ -2518,14 +2543,12 @@ void cleanup() {
   (void)arg;
   ee_wrefresh(com_win);
   resetty();
-  if(!profiling_mode) endwin();
+  if (!profiling_mode)
+    endwin();
   putchar('\n');
   cleanup();
   exit(1);
 }
-
-
-
 
 /* search for string in srch_str	*/
 
@@ -2672,29 +2695,43 @@ void adv_line() {
   }
 }
 
-
 /* execute shell command			*/
 
 /* set up the terminal for operating with ae	*/
 void set_up_term() {
   if (!curses_initialized) {
-    if(!profiling_mode) initscr();
-    if(!profiling_mode) savetty();
-    if(!profiling_mode) noecho();
-    if(!profiling_mode) raw();
-    if(!profiling_mode) nonl();
+    if (!profiling_mode)
+      initscr();
+    if (!profiling_mode)
+      savetty();
+    if (!profiling_mode)
+      noecho();
+    if (!profiling_mode)
+      raw();
+    if (!profiling_mode)
+      nonl();
 
     if (has_colors()) {
-      if(!profiling_mode) start_color();
-      if(!profiling_mode) use_default_colors();
-      if(!profiling_mode) init_pair(1, COLOR_GREEN, -1);   // comment
-      if(!profiling_mode) init_pair(2, COLOR_YELLOW, -1);  // string
-      if(!profiling_mode) init_pair(3, COLOR_CYAN, -1);    // number
-      if(!profiling_mode) init_pair(4, COLOR_YELLOW, -1);  // type
-      if(!profiling_mode) init_pair(5, COLOR_BLUE, -1);    // function
-      if(!profiling_mode) init_pair(6, COLOR_WHITE, -1);   // variable
-      if(!profiling_mode) init_pair(7, COLOR_MAGENTA, -1); // keyword
-      if(!profiling_mode) init_pair(8, COLOR_RED, -1);     // error/diagnostic
+      if (!profiling_mode)
+        start_color();
+      if (!profiling_mode)
+        use_default_colors();
+      if (!profiling_mode)
+        init_pair(1, COLOR_GREEN, -1); // comment
+      if (!profiling_mode)
+        init_pair(2, COLOR_YELLOW, -1); // string
+      if (!profiling_mode)
+        init_pair(3, COLOR_CYAN, -1); // number
+      if (!profiling_mode)
+        init_pair(4, COLOR_YELLOW, -1); // type
+      if (!profiling_mode)
+        init_pair(5, COLOR_BLUE, -1); // function
+      if (!profiling_mode)
+        init_pair(6, COLOR_WHITE, -1); // variable
+      if (!profiling_mode)
+        init_pair(7, COLOR_MAGENTA, -1); // keyword
+      if (!profiling_mode)
+        init_pair(8, COLOR_RED, -1); // error/diagnostic
     }
 
     curses_initialized = true;
@@ -2730,8 +2767,10 @@ void resize_check() {
   delwin(com_win);
   delwin(help_win);
   if (profiling_mode) {
-    if (LINES == 0) LINES = 24;
-    if (COLS == 0) COLS = 80;
+    if (LINES == 0)
+      LINES = 24;
+    if (COLS == 0)
+      COLS = 80;
   }
   set_up_term();
   redraw();
@@ -2762,7 +2801,8 @@ void help() {
   clearok(h_win, true);
   for (counter = 0; counter < 22; counter++) {
     wmove(h_win, counter, 0);
-    char *str = (emacs_keys_mode) ? emacs_help_text[counter] : help_text[counter];
+    char *str =
+        (emacs_keys_mode) ? emacs_help_text[counter] : help_text[counter];
     if (str != nullptr) {
       waddstr(h_win, str);
     }
@@ -2777,8 +2817,8 @@ void help() {
 }
 #endif
 #endif
-static void buf_append(char *restrict buf, size_t *restrict pos,
-                        size_t cap, const char *restrict s) {
+static void buf_append(char *restrict buf, size_t *restrict pos, size_t cap,
+                       const char *restrict s) {
   while (*s != '\0' && *pos < cap - 1) {
     buf[(*pos)++] = *s++;
   }
@@ -2792,11 +2832,14 @@ void generate_dynamic_info() {
   total_buf[0] = '\0';
   num_info_lines = 0;
 
-  if (!info_window) return;
+  if (!info_window)
+    return;
 
   control_handler *tbl = base_control_table;
-  if (gold) tbl = gold_control_table;
-  else if (emacs_keys_mode) tbl = emacs_control_table;
+  if (gold)
+    tbl = gold_control_table;
+  else if (emacs_keys_mode)
+    tbl = emacs_control_table;
 
   // Add mandatory main menu hint if menu is enabled
 #ifdef HAS_MENU
@@ -2807,7 +2850,8 @@ void generate_dynamic_info() {
     const char *key = get_key_binding(commands_table[i].handler, tbl);
     if (key[0] != '\0') {
       char item[64];
-      int n = snprintf(item, sizeof(item), "%s %s  ", key, commands_table[i].short_desc);
+      int n = snprintf(item, sizeof(item), "%s %s  ", key,
+                       commands_table[i].short_desc);
       size_t ilen = (size_t)n < sizeof(item) ? (size_t)n : sizeof(item) - 1;
       if (buf_pos + ilen < sizeof(total_buf) - 1) {
         buf_append(total_buf, &buf_pos, sizeof(total_buf), item);
@@ -2817,23 +2861,27 @@ void generate_dynamic_info() {
 
   // Word wrap
   int width = COLS;
-  if (width <= 0) width = 80;
-  
+  if (width <= 0)
+    width = 80;
+
   char *p = total_buf;
   while (*p != '\0' && num_info_lines < MAX_INFO_LINES - 1) {
     int len = strlen(p);
     if (len > width - 1) {
       int split = width - 1;
-      while (split > 0 && p[split] != ' ') split--;
-      if (split == 0) split = width - 1;
-      
+      while (split > 0 && p[split] != ' ')
+        split--;
+      if (split == 0)
+        split = width - 1;
+
       int cpy_len = min(split, 255);
       strncpy(lines_buf[num_info_lines], p, cpy_len);
       lines_buf[num_info_lines][cpy_len] = '\0';
       dynamic_info_lines[num_info_lines] = lines_buf[num_info_lines];
       num_info_lines++;
       p += split;
-      while (*p == ' ') p++;
+      while (*p == ' ')
+        p++;
     } else {
       strncpy(lines_buf[num_info_lines], p, 255);
       lines_buf[num_info_lines][255] = '\0';
@@ -2844,19 +2892,19 @@ void generate_dynamic_info() {
   }
 }
 
-
 int get_info_win_height() {
   if (!info_window)
     return 0;
   generate_dynamic_info();
-  return max(1, num_info_lines + 1); 
+  return max(1, num_info_lines + 1);
 }
 
 void resize_info_win() {
-  if (!curses_initialized) return;
+  if (!curses_initialized)
+    return;
 
   int new_height = get_info_win_height();
-  
+
   if (info_win != nullptr) {
     delwin(info_win);
     info_win = nullptr;
@@ -2872,7 +2920,9 @@ void resize_info_win() {
       ee_idlok(info_win, true);
       ee_keypad(info_win, true);
     }
-    text_win = profiling_mode ? nullptr : newwin(LINES - new_height - 1, COLS, new_height, 0);
+    text_win = profiling_mode
+                   ? nullptr
+                   : newwin(LINES - new_height - 1, COLS, new_height, 0);
   } else {
     text_win = profiling_mode ? nullptr : newwin(LINES - 1, COLS, 0, 0);
   }
@@ -2899,12 +2949,14 @@ void paint_info_win() {
   }
 
   generate_dynamic_info();
-  
-  if (info_win == nullptr) return;
+
+  if (info_win == nullptr)
+    return;
   getmaxyx(info_win, height, width);
 
   ee_werase(info_win);
-  for (counter = 0; counter < num_info_lines && counter < height - 1; counter++) {
+  for (counter = 0; counter < num_info_lines && counter < height - 1;
+       counter++) {
     ee_wmove(info_win, counter, 0);
     ee_wclrtoeol(info_win);
     if (dynamic_info_lines[counter] != nullptr) {
@@ -2919,8 +2971,8 @@ void paint_info_win() {
   }
 
   char status_buf[128];
-  snprintf(status_buf, sizeof(status_buf), "%s line %d col %d top %d=", 
-           (mark_line != nullptr ? "MARK" : ""), 
+  snprintf(status_buf, sizeof(status_buf),
+           "%s line %d col %d top %d=", (mark_line != nullptr ? "MARK" : ""),
            curr_line->line_number, scr_pos, absolute_lin);
   int status_len = strlen(status_buf);
 
@@ -2934,7 +2986,8 @@ void paint_info_win() {
 
   // Fill with '=' up to status info
   int current_x = 0;
-  if (!profiling_mode) current_x = getcurx(info_win);
+  if (!profiling_mode)
+    current_x = getcurx(info_win);
   int status_start_x = width - status_len;
   if (status_start_x < current_x) {
     status_start_x = current_x;
@@ -2951,7 +3004,8 @@ void paint_info_win() {
 
   // Final fill if needed
   current_x = 0;
-  if (!profiling_mode) current_x = getcurx(info_win);
+  if (!profiling_mode)
+    current_x = getcurx(info_win);
   for (int i = current_x; i < width; i++) {
     ee_waddch(info_win, '=');
   }
@@ -2961,7 +3015,6 @@ void paint_info_win() {
   }
   ee_wrefresh(info_win);
 }
-
 
 int file_op(int arg) {
   char *string;
@@ -3048,11 +3101,13 @@ void leave_op() {
 
 void redraw() {
   if (info_window) {
-    if(!profiling_mode) clearok(info_win, true);
+    if (!profiling_mode)
+      clearok(info_win, true);
     paint_info_win();
   } else {
     {
-      if(!profiling_mode) clearok(text_win, true);
+      if (!profiling_mode)
+        clearok(text_win, true);
     }
   }
   midscreen(scr_vert, point);
@@ -3231,35 +3286,78 @@ void ee_init() {
   {
     char yaml_path[512];
     const char *yh = getenv("HOME");
-    if (!yh) yh = "/tmp";
+    if (!yh)
+      yh = "/tmp";
     snprintf(yaml_path, sizeof(yaml_path), "%s/.config/ee/config.yaml", yh);
     FILE *yf = fopen(yaml_path, "r");
     if (yf) {
       char yline[512];
       while (fgets(yline, sizeof(yline), yf)) {
         char *ye = yline + strlen(yline);
-        while (ye > yline && (ye[-1] == '\n' || ye[-1] == '\r' || ye[-1] == ' ' || ye[-1] == '\t')) ye--;
+        while (ye > yline && (ye[-1] == '\n' || ye[-1] == '\r' ||
+                              ye[-1] == ' ' || ye[-1] == '\t'))
+          ye--;
         *ye = '\0';
-        if (yline[0] == '\0' || yline[0] == '#') continue;
+        if (yline[0] == '\0' || yline[0] == '#')
+          continue;
         char *yc = strstr(yline, ": ");
-        if (!yc) continue;
+        if (!yc)
+          continue;
         *yc = '\0';
         char *yk = yline;
         char *yv = yc + 2;
-        if (strcmp(yk, "case") == 0) case_sen = strcmp(yv, "true") == 0;
-        else if (strcmp(yk, "expand") == 0) expand_tabs = strcmp(yv, "true") == 0;
-        else if (strcmp(yk, "info") == 0) { info_window = strcmp(yv, "true") == 0; resize_info_win(); }
-        else if (strcmp(yk, "margins") == 0) observ_margins = strcmp(yv, "true") == 0;
-        else if (strcmp(yk, "autoformat") == 0) { auto_format = strcmp(yv, "true") == 0; if (auto_format) observ_margins = true; }
-        else if (strcmp(yk, "printcommand") == 0 && yv[0]) { size_t cl = strlen(yv) + 1; print_command = malloc(cl); snprintf(print_command, cl, "%s", yv); }
-        else if (strcmp(yk, "rightmargin") == 0) { int ti = atoi(yv); if (ti > 0) right_margin = ti; }
-        else if (strcmp(yk, "highlight") == 0) nohighlight = strcmp(yv, "false") == 0;
-        else if (strcmp(yk, "eightbit") == 0) eightbit = strcmp(yv, "true") == 0;
-        else if (strcmp(yk, "emacs") == 0) { emacs_keys_mode = strcmp(yv, "true") == 0; update_libedit_mode(); }
-        else if (strcmp(yk, "theme") == 0 && yv[0]) { snprintf(theme_name, sizeof(theme_name), "%s", yv); }
-        else if (strncmp(yk, "bind(", 5) == 0) { char *cp = yk + 5; char *cl = strchr(cp, ')'); if (cl) { *cl = '\0'; bind_key(cp, yv, 0); } }
-        else if (strncmp(yk, "gbind(", 6) == 0) { char *cp = yk + 6; char *cl = strchr(cp, ')'); if (cl) { *cl = '\0'; bind_key(cp, yv, 1); } }
-        else if (strncmp(yk, "ebind(", 6) == 0) { char *cp = yk + 6; char *cl = strchr(cp, ')'); if (cl) { *cl = '\0'; bind_key(cp, yv, 2); } }
+        if (strcmp(yk, "case") == 0)
+          case_sen = strcmp(yv, "true") == 0;
+        else if (strcmp(yk, "expand") == 0)
+          expand_tabs = strcmp(yv, "true") == 0;
+        else if (strcmp(yk, "info") == 0) {
+          info_window = strcmp(yv, "true") == 0;
+          resize_info_win();
+        } else if (strcmp(yk, "margins") == 0)
+          observ_margins = strcmp(yv, "true") == 0;
+        else if (strcmp(yk, "autoformat") == 0) {
+          auto_format = strcmp(yv, "true") == 0;
+          if (auto_format)
+            observ_margins = true;
+        } else if (strcmp(yk, "printcommand") == 0 && yv[0]) {
+          size_t cl = strlen(yv) + 1;
+          print_command = malloc(cl);
+          snprintf(print_command, cl, "%s", yv);
+        } else if (strcmp(yk, "rightmargin") == 0) {
+          int ti = atoi(yv);
+          if (ti > 0)
+            right_margin = ti;
+        } else if (strcmp(yk, "highlight") == 0)
+          nohighlight = strcmp(yv, "false") == 0;
+        else if (strcmp(yk, "eightbit") == 0)
+          eightbit = strcmp(yv, "true") == 0;
+        else if (strcmp(yk, "emacs") == 0) {
+          emacs_keys_mode = strcmp(yv, "true") == 0;
+          update_libedit_mode();
+        } else if (strcmp(yk, "theme") == 0 && yv[0]) {
+          snprintf(theme_name, sizeof(theme_name), "%s", yv);
+        } else if (strncmp(yk, "bind(", 5) == 0) {
+          char *cp = yk + 5;
+          char *cl = strchr(cp, ')');
+          if (cl) {
+            *cl = '\0';
+            bind_key(cp, yv, 0);
+          }
+        } else if (strncmp(yk, "gbind(", 6) == 0) {
+          char *cp = yk + 6;
+          char *cl = strchr(cp, ')');
+          if (cl) {
+            *cl = '\0';
+            bind_key(cp, yv, 1);
+          }
+        } else if (strncmp(yk, "ebind(", 6) == 0) {
+          char *cp = yk + 6;
+          char *cl = strchr(cp, ')');
+          if (cl) {
+            *cl = '\0';
+            bind_key(cp, yv, 2);
+          }
+        }
       }
       fclose(yf);
     }
@@ -3299,13 +3397,15 @@ void ee_init() {
 
 static void config_path(char *buf, size_t size) {
   const char *home = getenv("HOME");
-  if (!home) home = "/tmp";
+  if (!home)
+    home = "/tmp";
   snprintf(buf, size, "%s/.config/ee/config.yaml", home);
 }
 
 static void ensure_config_dir(void) {
   const char *home = getenv("HOME");
-  if (!home) return;
+  if (!home)
+    return;
   char dir[512];
   snprintf(dir, sizeof(dir), "%s/.config", home);
   mkdir(dir, 0755);
@@ -3314,7 +3414,8 @@ static void ensure_config_dir(void) {
 }
 
 void dump_ee_conf(void) {
-  if (restrict_mode()) return;
+  if (restrict_mode())
+    return;
 
   ensure_config_dir();
 
@@ -3344,15 +3445,22 @@ void dump_ee_conf(void) {
   fprintf(f, "theme: %s\n", theme_name[0] ? theme_name : "default");
 
   for (int t = 0; t < 3; t++) {
-    control_handler *tbl = t == 0 ? base_control_table : (t == 1 ? gold_control_table : emacs_control_table);
+    control_handler *tbl =
+        t == 0 ? base_control_table
+               : (t == 1 ? gold_control_table : emacs_control_table);
     const char *prefix = t == 0 ? "bind" : (t == 1 ? "gbind" : "ebind");
     for (int i = 0; i < 1024; i++) {
-      if (tbl[i] == no_op) continue;
+      if (tbl[i] == no_op)
+        continue;
       const char *cmd_name = nullptr;
       for (int j = 0; commands_table[j].name; j++) {
-        if (commands_table[j].handler == tbl[i]) { cmd_name = commands_table[j].name; break; }
+        if (commands_table[j].handler == tbl[i]) {
+          cmd_name = commands_table[j].name;
+          break;
+        }
       }
-      if (cmd_name) fprintf(f, "%s(%s): %s\n", prefix, get_key_name(i), cmd_name);
+      if (cmd_name)
+        fprintf(f, "%s(%s): %s\n", prefix, get_key_name(i), cmd_name);
     }
   }
 
@@ -3508,7 +3616,6 @@ int from_top(struct text *test_line) {
 
 /* format the paragraph according to set margins	*/
 
-
 /* a strchr() look-alike for systems without strchr() */
 char *get_token(char *restrict string, char *restrict substring) {
   char *full;
@@ -3528,7 +3635,6 @@ char *get_token(char *restrict string, char *restrict substring) {
  |	handle names of the form "~/file", "~user/file",
  |	"$HOME/foo", "~/$FOO", etc.
  */
-
 
 bool restrict_mode(void) {
   if (!restricted) {
@@ -3591,7 +3697,9 @@ int unique_test(char *string, char *list[]) {
   return fallback;
 }
 #else
-[[nodiscard]] char *locale_string(const char *key, char *fallback) { return fallback; }
+[[nodiscard]] char *locale_string(const char *key, char *fallback) {
+  return fallback;
+}
 #endif /* HAS_ICU */
 
 /*
@@ -3603,16 +3711,22 @@ int unique_test(char *string, char *list[]) {
 
 const char *get_key_name(int i) {
   static char key[16];
-  if (i == 0) return "^@";
+  if (i == 0)
+    return "^@";
   if (i < 27) {
     snprintf(key, sizeof(key), "^%c", i + '@');
     return key;
   }
-  if (i == 27) return "^[";
-  if (i == 28) return "^\\";
-  if (i == 29) return "^]";
-  if (i == 30) return "^^";
-  if (i == 31) return "^_";
+  if (i == 27)
+    return "^[";
+  if (i == 28)
+    return "^\\";
+  if (i == 29)
+    return "^]";
+  if (i == 30)
+    return "^^";
+  if (i == 31)
+    return "^_";
   if (i >= 512 && i < 768) {
     snprintf(key, sizeof(key), "M-%c", i - 512);
     return key;
@@ -3652,9 +3766,11 @@ char *format_shortcut(const char *cmd_name, control_handler *table) {
       break;
     }
   }
-  if (h == nullptr) return (char *)"";
+  if (h == nullptr)
+    return (char *)"";
   const char *key = get_key_binding(h, table);
-  if (key[0] == '\0') return (char *)"";
+  if (key[0] == '\0')
+    return (char *)"";
   snprintf(current_buf, 64, "%s %s", key, short_desc);
   return current_buf;
 }
@@ -3679,17 +3795,25 @@ void strings_init() {
 
   modes_menu[0].item_string = locale_string("modes_menu", "modes menu");
   mode_strings[1] = locale_string("tabs_to_spaces", "tabs to spaces       ");
-  mode_strings[2] = locale_string("case_sensitive_search", "case sensitive search");
+  mode_strings[2] =
+      locale_string("case_sensitive_search", "case sensitive search");
   mode_strings[3] = locale_string("margins_observed", "margins observed     ");
-  mode_strings[4] = locale_string("auto_paragraph_format", "auto-paragraph format");
-  mode_strings[5] = locale_string("eightbit_characters", "eightbit characters  ");
-  mode_strings[6] = locale_string("info_window_toggle", "info window          ");
-  mode_strings[7] = locale_string("emacs_key_bindings", "emacs key bindings   ");
+  mode_strings[4] =
+      locale_string("auto_paragraph_format", "auto-paragraph format");
+  mode_strings[5] =
+      locale_string("eightbit_characters", "eightbit characters  ");
+  mode_strings[6] =
+      locale_string("info_window_toggle", "info window          ");
+  mode_strings[7] =
+      locale_string("emacs_key_bindings", "emacs key bindings   ");
   mode_strings[8] = locale_string("vi_key_bindings", "vi key bindings      ");
-  mode_strings[9] = locale_string("right_margin_toggle", "right margin         ");
-  mode_strings[10] = locale_string("sixteen_bit_chars", "16 bit characters    ");
-  mode_strings[11] = locale_string("save_editor_config", "save editor configuration");
-  
+  mode_strings[9] =
+      locale_string("right_margin_toggle", "right margin         ");
+  mode_strings[10] =
+      locale_string("sixteen_bit_chars", "16 bit characters    ");
+  mode_strings[11] =
+      locale_string("save_editor_config", "save editor configuration");
+
   leave_menu[0].item_string = locale_string("leave_menu", "leave menu");
   leave_menu[1].item_string = locale_string("save_changes", "save changes");
   leave_menu[2].item_string = locale_string("no_save", "no save");
@@ -3697,139 +3821,189 @@ void strings_init() {
   file_menu[1].item_string = locale_string("read_file", "read a file");
   file_menu[2].item_string = locale_string("write_file", "write a file");
   file_menu[3].item_string = locale_string("save_file", "save file");
-  file_menu[4].item_string = locale_string("print_contents", "print editor contents");
+  file_menu[4].item_string =
+      locale_string("print_contents", "print editor contents");
   search_menu[0].item_string = locale_string("search_menu", "search menu");
-  search_menu[1].item_string = locale_string("search_for_prompt", "search for ...");
+  search_menu[1].item_string =
+      locale_string("search_for_prompt", "search for ...");
   search_menu[2].item_string = locale_string("search_cmd", "search");
   spell_menu[0].item_string = locale_string("spell_menu", "spell menu");
   spell_menu[1].item_string = locale_string("use_spell", "use 'spell'");
   spell_menu[2].item_string = locale_string("use_ispell", "use 'ispell'");
   misc_menu[0].item_string = locale_string("misc_menu", "miscellaneous menu");
-  misc_menu[1].item_string = locale_string("format_paragraph", "format paragraph");
+  misc_menu[1].item_string =
+      locale_string("format_paragraph", "format paragraph");
   misc_menu[2].item_string = locale_string("shell_command", "shell command");
   misc_menu[3].item_string = locale_string("check_spelling", "check spelling");
   misc_menu[4].item_string = locale_string("themes_menu", "themes");
   main_menu[0].item_string = locale_string("main_menu", "main menu");
   main_menu[1].item_string = locale_string("leave_editor", "leave editor");
   main_menu[2].item_string = locale_string("help_cmd", "help");
-  main_menu[3].item_string = locale_string("file_operations", "file operations");
+  main_menu[3].item_string =
+      locale_string("file_operations", "file operations");
   main_menu[4].item_string = locale_string("redraw_screen", "redraw screen");
   main_menu[5].item_string = locale_string("settings", "settings");
   main_menu[6].item_string = locale_string("search", "search");
   main_menu[7].item_string = locale_string("miscellaneous", "miscellaneous");
-  help_text[0] = locale_string("control_keys_header", "Control keys:                                "
-                                 "                              ");
-  help_text[1] = locale_string("help_text_1", "^a ascii code           ^i tab               "
-                                 "   ^r right                   ");
-  help_text[2] = locale_string("help_text_2", "^b bottom of text       ^j newline           "
-                                 "   ^t top of text             ");
-  help_text[3] = locale_string("help_text_3", "^c command              ^k delete char       "
-                                 "   ^u up                      ");
-  help_text[4] = locale_string("help_text_4", "^d down                 ^l left              "
-                                 "   ^v undelete word           ");
-  help_text[5] = locale_string("help_text_5", "^e search prompt        ^m newline           "
-                                 "   ^w delete word             ");
-  help_text[6] = locale_string("help_text_6", "^f undelete char        ^n next page         "
-                                 "   ^x search                  ");
-  help_text[7] = locale_string("help_text_7", "^g begin of line        ^o end of line       "
-                                 "   ^y delete line             ");
-  help_text[8] = locale_string("help_text_8", "^h backspace            ^p prev page         "
-                                 "   ^z undelete line           ");
-  help_text[9] = locale_string("help_text_9", "^[ (escape) menu        ESC-Enter: exit ee   "
-                                 "                              ");
-  help_text[10] = locale_string("help_text_blank", "                                            "
-                                  "                              ");
-  help_text[11] = locale_string("commands_header", "Commands:                                   "
-                                  "                              ");
-  help_text[12] = locale_string("commands_help_1", "help    : get this info                 "
-                                  "file    : print file name          ");
-  help_text[13] = locale_string("commands_help_2", "read    : read a file                   "
-                                  "char    : ascii code of char       ");
-  help_text[14] = locale_string("commands_help_3", "write   : write a file                  "
-                                  "case    : case sensitive search    ");
-  help_text[15] = locale_string("commands_help_4", "                                        "
-                                  "nocase  : case insensitive search  ");
-  help_text[16] = locale_string("commands_help_5", "                                        "
-                                  "!cmd    : execute \"cmd\" in shell   ");
-  help_text[17] = locale_string("commands_help_6", "line    : display line #                0-9 "
-                                  "    : go to line \"#\"           ");
-  help_text[18] = locale_string("commands_help_7", "expand  : expand tabs                   "
-                                  "noexpand: do not expand tabs         ");
-  help_text[19] = locale_string("commands_help_8", "                                            "
-                                  "                                 ");
-  help_text[20] = locale_string("usage_summary", "  ee [+#] [-i] [-e] [-h] [file(s)]          "
-                                  "                                  ");
-  help_text[21] = locale_string("usage_options", "+# :go to line #  -i :no info window  -e : "
-                                  "don't expand tabs  -h :no highlight");
+  help_text[0] = locale_string("control_keys_header",
+                               "Control keys:                                "
+                               "                              ");
+  help_text[1] = locale_string("help_text_1",
+                               "^a ascii code           ^i tab               "
+                               "   ^r right                   ");
+  help_text[2] = locale_string("help_text_2",
+                               "^b bottom of text       ^j newline           "
+                               "   ^t top of text             ");
+  help_text[3] = locale_string("help_text_3",
+                               "^c command              ^k delete char       "
+                               "   ^u up                      ");
+  help_text[4] = locale_string("help_text_4",
+                               "^d down                 ^l left              "
+                               "   ^v undelete word           ");
+  help_text[5] = locale_string("help_text_5",
+                               "^e search prompt        ^m newline           "
+                               "   ^w delete word             ");
+  help_text[6] = locale_string("help_text_6",
+                               "^f undelete char        ^n next page         "
+                               "   ^x search                  ");
+  help_text[7] = locale_string("help_text_7",
+                               "^g begin of line        ^o end of line       "
+                               "   ^y delete line             ");
+  help_text[8] = locale_string("help_text_8",
+                               "^h backspace            ^p prev page         "
+                               "   ^z undelete line           ");
+  help_text[9] = locale_string("help_text_9",
+                               "^[ (escape) menu        ESC-Enter: exit ee   "
+                               "                              ");
+  help_text[10] = locale_string("help_text_blank",
+                                "                                            "
+                                "                              ");
+  help_text[11] = locale_string("commands_header",
+                                "Commands:                                   "
+                                "                              ");
+  help_text[12] = locale_string("commands_help_1",
+                                "help    : get this info                 "
+                                "file    : print file name          ");
+  help_text[13] = locale_string("commands_help_2",
+                                "read    : read a file                   "
+                                "char    : ascii code of char       ");
+  help_text[14] = locale_string("commands_help_3",
+                                "write   : write a file                  "
+                                "case    : case sensitive search    ");
+  help_text[15] = locale_string("commands_help_4",
+                                "                                        "
+                                "nocase  : case insensitive search  ");
+  help_text[16] = locale_string("commands_help_5",
+                                "                                        "
+                                "!cmd    : execute \"cmd\" in shell   ");
+  help_text[17] = locale_string("commands_help_6",
+                                "line    : display line #                0-9 "
+                                "    : go to line \"#\"           ");
+  help_text[18] = locale_string("commands_help_7",
+                                "expand  : expand tabs                   "
+                                "noexpand: do not expand tabs         ");
+  help_text[19] = locale_string("commands_help_8",
+                                "                                            "
+                                "                                 ");
+  help_text[20] = locale_string("usage_summary",
+                                "  ee [+#] [-i] [-e] [-h] [file(s)]          "
+                                "                                  ");
+  help_text[21] = locale_string("usage_options",
+                                "+# :go to line #  -i :no info window  -e : "
+                                "don't expand tabs  -h :no highlight");
 
   command_strings[0] =
-      locale_string("command_strings_1", "help : get help info  |file  : print file name         "
-                      "|line : print line # ");
+      locale_string("command_strings_1",
+                    "help : get help info  |file  : print file name         "
+                    "|line : print line # ");
   command_strings[1] =
-      locale_string("command_strings_2", "read : read a file    |char  : ascii code of char      "
-                      "|0-9 : go to line \"#\"");
+      locale_string("command_strings_2",
+                    "read : read a file    |char  : ascii code of char      "
+                    "|0-9 : go to line \"#\"");
   command_strings[2] =
-      locale_string("command_strings_3", "write: write a file   |case  : case sensitive search   "
-                      "|exit : leave and save ");
+      locale_string("command_strings_3",
+                    "write: write a file   |case  : case sensitive search   "
+                    "|exit : leave and save ");
   command_strings[3] =
-      locale_string("command_strings_4", "!cmd : shell \"cmd\"    |nocase: ignore case in search  "
-                      " |quit : leave, no save");
+      locale_string("command_strings_4",
+                    "!cmd : shell \"cmd\"    |nocase: ignore case in search  "
+                    " |quit : leave, no save");
   command_strings[4] =
-      locale_string("command_strings_5", "expand: expand tabs   |noexpand: do not expand tabs     "
-                      "                      ");
-  com_win_message = locale_string("press_esc_for_menu", "    press Escape (^[) for menu");
+      locale_string("command_strings_5",
+                    "expand: expand tabs   |noexpand: do not expand tabs     "
+                    "                      ");
+  com_win_message =
+      locale_string("press_esc_for_menu", "    press Escape (^[) for menu");
   no_file_string = locale_string("no_file", "no file");
   ascii_code_str = locale_string("ascii_code_prompt", "ascii code: ");
-  printer_msg_str = locale_string("sending_to_printer", "sending contents of buffer to \"%s\" ");
+  printer_msg_str = locale_string("sending_to_printer",
+                                  "sending contents of buffer to \"%s\" ");
   command_str = locale_string("command_prompt", "command: ");
-  file_write_prompt_str = locale_string("file_write_prompt", "name of file to write: ");
-  file_read_prompt_str = locale_string("file_read_prompt", "name of file to read: ");
+  file_write_prompt_str =
+      locale_string("file_write_prompt", "name of file to write: ");
+  file_read_prompt_str =
+      locale_string("file_read_prompt", "name of file to read: ");
   char_str = locale_string("character_info", "character = %d");
   unkn_cmd_str = locale_string("unknown_command", "unknown command \"%s\"");
-  non_unique_cmd_msg = locale_string("command_not_unique", "entered command is not unique");
+  non_unique_cmd_msg =
+      locale_string("command_not_unique", "entered command is not unique");
   line_num_str = locale_string("line_info", "line %d  ");
   line_len_str = locale_string("length_info", "length = %d");
-  current_file_str = locale_string("current_file_info", "current file is \"%s\" ");
-  usage0 =
-      locale_string("usage_text", "usage: %s [-i] [-e] [-h] [+line_number] [file(s)]\n");
+  current_file_str =
+      locale_string("current_file_info", "current file is \"%s\" ");
+  usage0 = locale_string("usage_text",
+                         "usage: %s [-i] [-e] [-h] [+line_number] [file(s)]\n");
   usage1 = locale_string("usage_opt_i", "       -i   turn off info window\n");
-  usage2 = locale_string("usage_opt_e", "       -e   do not convert tabs to spaces\n");
-  usage3 = locale_string("usage_opt_h", "       -h   do not use highlighting\n");
+  usage2 = locale_string("usage_opt_e",
+                         "       -e   do not convert tabs to spaces\n");
+  usage3 =
+      locale_string("usage_opt_h", "       -h   do not use highlighting\n");
   file_is_dir_msg = locale_string("file_is_dir", "file \"%s\" is a directory");
   new_file_msg = locale_string("new_file", "new file \"%s\"");
   cant_open_msg = locale_string("cant_open_file", "can't open \"%s\"");
   open_file_msg = locale_string("file_lines_info", "file \"%s\", %d lines");
-  file_read_fin_msg = locale_string("finished_reading", "finished reading file \"%s\"");
+  file_read_fin_msg =
+      locale_string("finished_reading", "finished reading file \"%s\"");
   reading_file_msg = locale_string("reading_file", "reading file \"%s\"");
   read_only_msg = locale_string("read_only", ", read only");
-  file_read_lines_msg = locale_string("file_lines_count", "file \"%s\", %d lines");
-  save_file_name_prompt = locale_string("enter_filename", "enter name of file: ");
-  file_not_saved_msg = locale_string("no_filename_saved", "no filename entered: file not saved");
-  changes_made_prompt =
-      locale_string("changes_made_sure", "changes have been made, are you sure? (y/n [n]) ");
+  file_read_lines_msg =
+      locale_string("file_lines_count", "file \"%s\", %d lines");
+  save_file_name_prompt =
+      locale_string("enter_filename", "enter name of file: ");
+  file_not_saved_msg =
+      locale_string("no_filename_saved", "no filename entered: file not saved");
+  changes_made_prompt = locale_string(
+      "changes_made_sure", "changes have been made, are you sure? (y/n [n]) ");
   yes_char = locale_string("yes_char", "y");
-  file_exists_prompt =
-      locale_string("file_exists_overwrite", "file already exists, overwrite? (y/n) [n] ");
-  create_file_fail_msg = locale_string("unable_to_create", "unable to create file \"%s\"");
+  file_exists_prompt = locale_string(
+      "file_exists_overwrite", "file already exists, overwrite? (y/n) [n] ");
+  create_file_fail_msg =
+      locale_string("unable_to_create", "unable to create file \"%s\"");
   writing_file_msg = locale_string("writing_file", "writing file \"%s\"");
-  file_written_msg = locale_string("file_written_info", "\"%s\" %d lines, %d characters");
+  file_written_msg =
+      locale_string("file_written_info", "\"%s\" %d lines, %d characters");
   searching_msg = locale_string("searching", "           ...searching");
-  str_not_found_msg = locale_string("string_not_found", "string \"%s\" not found");
+  str_not_found_msg =
+      locale_string("string_not_found", "string \"%s\" not found");
   search_prompt_str = locale_string("search_for_prompt", "search for: ");
   exec_err_msg = locale_string("could_not_exec", "could not exec %s\n");
   continue_msg = locale_string("press_return", "press return to continue ");
   menu_cancel_msg = locale_string("press_esc_cancel", "press Esc to cancel");
-  menu_size_err_msg = locale_string("menu_too_large", "menu too large for window");
-  press_any_key_msg = locale_string("press_any_key", "press any key to continue ");
+  menu_size_err_msg =
+      locale_string("menu_too_large", "menu too large for window");
+  press_any_key_msg =
+      locale_string("press_any_key", "press any key to continue ");
   shell_prompt = locale_string("shell_command_prompt", "shell command: ");
-  formatting_msg = locale_string("formatting_paragraph", "...formatting paragraph...");
-  shell_echo_msg =
-      locale_string("spell_header", "<!echo 'list of unrecognized words'; echo -=-=-=-=-=-");
-  spell_in_prog_msg =
-      locale_string("sending_to_spell", "sending contents of edit buffer to 'spell'");
+  formatting_msg =
+      locale_string("formatting_paragraph", "...formatting paragraph...");
+  shell_echo_msg = locale_string(
+      "spell_header", "<!echo 'list of unrecognized words'; echo -=-=-=-=-=-");
+  spell_in_prog_msg = locale_string(
+      "sending_to_spell", "sending contents of edit buffer to 'spell'");
   margin_prompt = locale_string("right_margin_info", "right margin is: ");
-  restricted_msg = locale_string("restricted_mode_error",
-      "restricted mode: unable to perform requested operation");
+  restricted_msg =
+      locale_string("restricted_mode_error",
+                    "restricted mode: unable to perform requested operation");
   STATE_ON = locale_string("state_on", "ON");
   STATE_OFF = locale_string("state_off", "OFF");
   HELP = locale_string("cmd_help", "HELP");
@@ -3862,35 +4036,35 @@ void strings_init() {
   NOHIGHLIGHT = locale_string("cmd_nohighlight", "NOHIGHLIGHT");
   EIGHTBIT = locale_string("cmd_eightbit", "EIGHTBIT");
   NOEIGHTBIT = locale_string("cmd_noeightbit", "NOEIGHTBIT");
-  
+
   VI_string = locale_string("cmd_vi", "VI");
   NOVI_string = locale_string("cmd_novi", "NOVI");
 
   emacs_help_text[0] = help_text[0];
-  emacs_help_text[1] =
-      locale_string("emacs_help_1", "^a beginning of line    ^i tab                  ^r "
-                       "restore word            ");
-  emacs_help_text[2] =
-      locale_string("emacs_help_2", "^b back 1 char          ^j undel char           ^t top "
-                       "of text             ");
-  emacs_help_text[3] =
-      locale_string("emacs_help_3", "^c command              ^k delete line          ^u "
-                       "bottom of text          ");
-  emacs_help_text[4] =
-      locale_string("emacs_help_4", "^d delete char          ^l undelete line        ^v "
-                       "next page               ");
-  emacs_help_text[5] =
-      locale_string("emacs_help_5", "^e end of line          ^m newline              ^w "
-                       "delete word             ");
-  emacs_help_text[6] =
-      locale_string("emacs_help_6", "^f forward 1 char       ^n next line            ^x "
-                       "search                  ");
-  emacs_help_text[7] =
-      locale_string("emacs_help_7", "^g go back 1 page       ^o ascii char insert    ^y "
-                       "search prompt           ");
-  emacs_help_text[8] =
-      locale_string("emacs_help_8", "^h backspace            ^p prev line            ^z "
-                       "next word               ");
+  emacs_help_text[1] = locale_string(
+      "emacs_help_1", "^a beginning of line    ^i tab                  ^r "
+                      "restore word            ");
+  emacs_help_text[2] = locale_string(
+      "emacs_help_2", "^b back 1 char          ^j undel char           ^t top "
+                      "of text             ");
+  emacs_help_text[3] = locale_string(
+      "emacs_help_3", "^c command              ^k delete line          ^u "
+                      "bottom of text          ");
+  emacs_help_text[4] = locale_string(
+      "emacs_help_4", "^d delete char          ^l undelete line        ^v "
+                      "next page               ");
+  emacs_help_text[5] = locale_string(
+      "emacs_help_5", "^e end of line          ^m newline              ^w "
+                      "delete word             ");
+  emacs_help_text[6] = locale_string(
+      "emacs_help_6", "^f forward 1 char       ^n next line            ^x "
+                      "search                  ");
+  emacs_help_text[7] = locale_string(
+      "emacs_help_7", "^g go back 1 page       ^o ascii char insert    ^y "
+                      "search prompt           ");
+  emacs_help_text[8] = locale_string(
+      "emacs_help_8", "^h backspace            ^p prev line            ^z "
+                      "next word               ");
   emacs_help_text[9] = help_text[9];
   emacs_help_text[10] = help_text[10];
   emacs_help_text[11] = help_text[11];
@@ -3905,36 +4079,49 @@ void strings_init() {
   emacs_help_text[20] = help_text[20];
   emacs_help_text[21] = help_text[21];
   emacs_control_keys[0] =
-      locale_string("emacs_control_1", "^[ (escape) menu ^y search prompt ^k delete line   ^p "
-                       "prev li     ^g prev page");
+      locale_string("emacs_control_1",
+                    "^[ (escape) menu ^y search prompt ^k delete line   ^p "
+                    "prev li     ^g prev page");
   emacs_control_keys[1] =
-      locale_string("emacs_control_2", "^o ascii code    ^x search        ^l undelete line ^n "
-                       "next li     ^v next page");
+      locale_string("emacs_control_2",
+                    "^o ascii code    ^x search        ^l undelete line ^n "
+                    "next li     ^v next page");
   emacs_control_keys[2] =
-      locale_string("emacs_control_3", "^u end of file    ^a begin of line  ^w delete word   ^b "
-                       "back 1 char ^z next word");
+      locale_string("emacs_control_3",
+                    "^u end of file    ^a begin of line  ^w delete word   ^b "
+                    "back 1 char ^z next word");
   emacs_control_keys[3] =
-      locale_string("emacs_control_4", "^t top of text    ^e end of line    ^r restore word  ^f "
-                       "forward char            ");
+      locale_string("emacs_control_4",
+                    "^t top of text    ^e end of line    ^r restore word  ^f "
+                    "forward char            ");
   emacs_control_keys[4] =
-      locale_string("emacs_control_5", "^c command        ^d delete char    ^j undelete char     "
-                       "                         ");
-  
+      locale_string("emacs_control_5",
+                    "^c command        ^d delete char    ^j undelete char     "
+                    "                         ");
+
   EMACS_string = locale_string("cmd_emacs", "EMACS");
   NOEMACS_string = locale_string("cmd_noemacs", "NOEMACS");
   BIND = locale_string("bind_cmd", "BIND");
   GBIND = locale_string("gbind_cmd", "GBIND");
   EBIND = locale_string("ebind_cmd", "EBIND");
-  usage4 = locale_string("usage_line_num", "       +#   put cursor at line #\n");
+  usage4 =
+      locale_string("usage_line_num", "       +#   put cursor at line #\n");
   conf_dump_err_msg = locale_string(
-      "config_err_msg", "unable to open .init.ee for writing, no configuration saved!");
-  conf_dump_success_msg = locale_string("config_saved_msg", "ee configuration saved in file %s");
+      "config_err_msg",
+      "unable to open .init.ee for writing, no configuration saved!");
+  conf_dump_success_msg =
+      locale_string("config_saved_msg", "ee configuration saved in file %s");
   modes_menu[11].item_string = mode_strings[11];
-  config_dump_menu[0].item_string = locale_string("save_ee_config", "save ee configuration");
-  config_dump_menu[1].item_string = locale_string("save_config", "save configuration");
-  conf_not_saved_msg = locale_string("config_not_saved", "ee configuration not saved");
-  ree_no_file_msg = locale_string("ree_no_file", "must specify a file when invoking ree");
-  menu_too_lrg_msg = locale_string("menu_too_large_alt", "menu too large for window");
+  config_dump_menu[0].item_string =
+      locale_string("save_ee_config", "save ee configuration");
+  config_dump_menu[1].item_string =
+      locale_string("save_config", "save configuration");
+  conf_not_saved_msg =
+      locale_string("config_not_saved", "ee configuration not saved");
+  ree_no_file_msg =
+      locale_string("ree_no_file", "must specify a file when invoking ree");
+  menu_too_lrg_msg =
+      locale_string("menu_too_large_alt", "menu too large for window");
   more_above_str = locale_string("more_above", "^^more^^");
   more_below_str = locale_string("more_below", "VVmoreVV");
 
@@ -3995,7 +4182,6 @@ void strings_init() {
   init_strings[22] = GBIND;
   init_strings[23] = EBIND;
   init_strings[24] = nullptr;
-  
 
   /*
    |	allocate space for strings here for settings menu
@@ -4006,10 +4192,6 @@ void strings_init() {
   }
 }
 
-void control_undo(void) {
-  undo_perform(&undo_state);
-}
+void control_undo(void) { undo_perform(&undo_state); }
 
-void control_redo(void) {
-  undo_redo(&undo_state);
-}
+void control_redo(void) { undo_redo(&undo_state); }

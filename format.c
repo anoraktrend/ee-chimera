@@ -1,12 +1,20 @@
 #include "format.h"
-#include "ee.h"
 #include "delete.h"
-int right_margin = 0;    /* the right margin 			*/
+#include "ee.h"
+int right_margin = 0;       /* the right margin 			*/
 bool observ_margins = true; /* flag for whether margins are observed */
 static int first_word_len(struct text *line) {
   char *ptr = (char *)line->line;
   ptr += strspn(ptr, " \t");  /* Skip leading whitespace */
   return strcspn(ptr, " \t"); /* Count length of the word */
+}
+
+/* walk the cursor right until offset is exhausted (zeroed only if positive) */
+static void advance_offset(int *offset) {
+  while (*offset > 0) {
+    (*offset)--;
+    right(1);
+  }
 }
 [[nodiscard]] bool Blank_Line(struct text *test_line) {
   if (test_line == nullptr) {
@@ -220,10 +228,7 @@ void Format() {
    |	offset the cursor to where it was before from the start of the word
    */
 
-  while (offset > 0) {
-    offset--;
-    right(1);
-  }
+  advance_offset(&offset);
 
   /*
    |	reset flags and strings to what they were before formatting
@@ -477,10 +482,7 @@ void Auto_Format() {
    |	offset the cursor to where it was before from the start of the word
    */
 
-  while (offset > 0) {
-    offset--;
-    right(1);
-  }
+  advance_offset(&offset);
 
   if ((string_count > 0) && (offset < 0)) {
     while (offset < 0) {

@@ -1,11 +1,11 @@
 #define _GNU_SOURCE
 #include "lsp.h"
 #include "ee.h"
-#include <unistd.h>
 #include <fcntl.h>
-#include <stdlib.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #ifdef HAS_TREESITTER
 #include <tree_sitter/api.h>
 const TSLanguage *tree_sitter_c(void);
@@ -101,8 +101,31 @@ static char *lsp_escape_json(char const *buf, size_t total_len) {
   return escaped;
 }
 
-void lsp_open_file(const char *filename) {
+/* build a textDocument message from the serialized buffer and send it */
+static void lsp_send_doc_msg(const char *filename, char *buf, char *escaped,
+                             size_t total_len, const char *const tmpl) {
+  size_t msg_cap;
+  if (ckd_mul(&msg_cap, total_len, 2)) {
+    free(buf);
+    free(escaped);
+    return;
+  }
+  if (ckd_add(&msg_cap, msg_cap, 1024)) {
+    free(buf);
+    free(escaped);
+    return;
+  }
+  char *msg = (char *)malloc(msg_cap);
+  if (msg != nullptr) {
+    snprintf(msg, msg_cap, tmpl, filename, escaped);
+    lsp_send(msg);
+  }
+  free(buf);
+  free(escaped);
+  free(msg);
+}
 
+void lsp_open_file(const char *filename) {
   if (filename == nullptr) {
     return;
   }
@@ -116,22 +139,11 @@ void lsp_open_file(const char *filename) {
     free(buf);
     return;
   }
-
-  size_t msg_cap;
-  bool cap_ok = !ckd_mul(&msg_cap, total_len, 2);
-  cap_ok = cap_ok && !ckd_add(&msg_cap, msg_cap, 1024);
-  char *msg = cap_ok ? (char *)malloc(msg_cap) : nullptr;
-  if (msg != nullptr) {
-    snprintf(msg, msg_cap,
-             "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/"
-             "didOpen\",\"params\":{\"textDocument\":{\"uri\":\"file://"
-             "%s\",\"languageId\":\"c\",\"version\":1,\"text\":\"%s\"}}}",
-             filename, escaped);
-    lsp_send(msg);
-  }
-  free(buf);
-  free(escaped);
-  free(msg);
+  lsp_send_doc_msg(
+      filename, buf, escaped, total_len,
+      "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/"
+      "didOpen\",\"params\":{\"textDocument\":{\"uri\":\"file://"
+      "%s\",\"languageId\":\"c\",\"version\":1,\"text\":\"%s\"}}}");
 }
 void lsp_poll() {
   char buf[8192]; /* BUF_SIZE */
@@ -188,20 +200,11 @@ void lsp_change_file(const char *filename) {
     free(buf);
     return;
   }
-
-  size_t msg_cap = (total_len * 2) + 1024;
-  char *msg = (char *)malloc(msg_cap);
-  if (msg != nullptr) {
-    snprintf(msg, msg_cap,
-             "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/"
-             "didChange\",\"params\":{\"textDocument\":{\"uri\":\"file://"
-             "%s\",\"version\":2},\"contentChanges\":[{\"text\":\"%s\"}]}}",
-             filename, escaped);
-    lsp_send(msg);
-  }
-  free(buf);
-  free(escaped);
-  free(msg);
+  lsp_send_doc_msg(
+      filename, buf, escaped, total_len,
+      "{\"jsonrpc\":\"2.0\",\"method\":\"textDocument/"
+      "didChange\",\"params\":{\"textDocument\":{\"uri\":\"file://"
+      "%s\",\"version\":2},\"contentChanges\":[{\"text\":\"%s\"}]}}");
 }
 #ifdef HAS_TREESITTER
 const char *ts_read_buffer(void *payload, uint32_t byte_index, TSPoint position,
