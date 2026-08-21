@@ -15,7 +15,7 @@ ENABLE_AUTOFORMAT=${ENABLE_AUTOFORMAT:-1}
 ENABLE_INFO_WIN=${ENABLE_INFO_WIN:-1}
 ENABLE_LIBEDIT=${ENABLE_LIBEDIT:-1}
 
-CFLAGS="-std=c23 -O2 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 \\
+CFLAGS="-std=c23 -O2 -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600 -flto -ffunction-sections -fdata-sections -DRESDIR_PATH="$PREFIX/share/ee/"
           -flto -ffunction-sections -fdata-sections"
 CFLAGS="$CFLAGS -DRESDIR_PATH=\\\"$PREFIX/share/ee/\\\""
 LIBS=""
