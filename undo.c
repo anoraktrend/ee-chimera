@@ -156,6 +156,8 @@ void undo_record_move(undo_buffer *buffer, int from_line, int from_col,
 void undo_record_replace(undo_buffer *buffer, int line_number, int column,
                          int old_length, int new_length,
                          unsigned char *old_data, unsigned char *new_data) {
+  (void)new_length;
+  (void)new_data;
   if (!buffer)
     return;
 
@@ -163,10 +165,11 @@ void undo_record_replace(undo_buffer *buffer, int line_number, int column,
   if (!entry)
     return;
 
+  /* entries own their data: keep an internal copy of the pre-replace text so
+   * undo_entry_cleanup can safely free it and undo_perform_replace can
+   * restore it; the entry struct has a single data slot */
   undo_entry_init(entry, UNDO_REPLACE, line_number, column, old_length,
                   old_data);
-  entry->length = new_length;
-  entry->data = new_data;
   undo_buffer_add(buffer, entry);
 }
 
@@ -311,14 +314,14 @@ static void undo_apply_splice(undo_entry *entry) {
   if (!new_line)
     return;
 
-    int pos = 0;
-    for (int i = 0; i < entry->column && pos < line->line_length; i++) {
-        new_line[pos++] = line->line[i];
-    }
+  int pos = 0;
+  for (int i = 0; i < entry->column && pos < line->line_length; i++) {
+    new_line[pos++] = line->line[i];
+  }
 
-    for (int i = 0; i < entry->length && pos < new_len; i++) {
-        new_line[pos++] = entry->data[i];
-    }
+  for (int i = 0; i < entry->length && pos < new_len; i++) {
+    new_line[pos++] = entry->data[i];
+  }
 
   for (int i = entry->column; i < line->line_length && pos < new_len; i++) {
     new_line[pos++] = line->line[i];
