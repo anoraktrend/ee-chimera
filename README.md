@@ -4,6 +4,22 @@ The editor 'ee' (easy editor) is intended to be a simple, easy to use terminal-b
 
 A primary technical goal of this project is the implementation of **branchless and loopless programming** techniques to optimize performance and reduce processor pipeline stalls.
 
+## Refactoring Progress
+
+✅ **Core**: Split `ee.c` into modular files:
+- `input.c`: Input handling (`control()`, `emacs_control()`, `function_key()`).
+- `render.c`: Rendering logic (`draw_line()`, `draw_screen()`, `paint_info_win()`).
+- `state.c`: Editor state management (`main()` event loop, `undo_state`, `curr_line`).
+
+✅ **Branchless Dispatch**:
+- Replaced `vi_command()` `switch-case` with **function pointer table**.
+- Optimized `control()` and `emacs_control()` with **branchless dispatch** (`in & 0x1F`).
+
+## Next Steps
+
+- **Memory**: Audit `undo.c` and `search.c` for leaks/inefficiencies.
+- **Performance**: Optimize hot paths (`draw_line()`, `insert()`) with branchless/SIMD.
+
 ## Recent Changes
 
 * **LSP Integration Fix:** Redirected `stderr` to `/dev/null` for the `clangd` child process. This prevents a "Transport error: Input/output error" from being printed to the terminal every time `ee` is closed, resulting in a cleaner exit.

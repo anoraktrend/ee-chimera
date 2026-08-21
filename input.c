@@ -246,12 +246,11 @@ control_handler emacs_control_table[1024] = {[1] = bol,
                                              [26] = adv_word,
                                              [27] = control_esc};
 
-/* use control for commands */
+/* use control for commands (branchless dispatch) */
 void control() {
   bool was_gold = gold;
-  control_handler const *table_ptr =
-      gold ? gold_control_table : base_control_table;
-  int index = in * ((in >= 0) & (in <= 31));
+  control_handler const *table_ptr = gold ? gold_control_table : base_control_table;
+  int index = in & 0x1F; // Branchless: in % 32
   control_handler handler = table_ptr[index];
   handler = handler ? handler : no_op;
 
@@ -262,12 +261,11 @@ void control() {
   handler();
 }
 
-/* Emacs control-key bindings */
+/* Emacs control-key bindings (branchless dispatch) */
 void emacs_control() {
-  int index = in * ((in >= 0) & (in <= 31));
+  int index = in & 0x1F; // Branchless: in % 32
   control_handler handler = emacs_control_table[index];
   handler = handler ? handler : no_op;
-
   handler();
 }
 
@@ -324,80 +322,58 @@ void adv_word() {
   }
 }
 
+// Vi command handler table
+typedef void (*vi_command_handler)(void);
+
+static void vi_h(void) { left(1); }
+static void vi_j(void) { down(); }
+static void vi_k(void) { up(); }
+static void vi_l(void) { right(1); }
+static void vi_i(void) { vi_insert_mode = true; }
+static void vi_I(void) { bol(); vi_insert_mode = true; }
+static void vi_a(void) { right(1); vi_insert_mode = true; }
+static void vi_A(void) { eol(); vi_insert_mode = true; }
+static void vi_o(void) { eol(); control_newline(); vi_insert_mode = true; }
+static void vi_O(void) { bol(); control_newline(); up(); vi_insert_mode = true; }
+static void vi_x(void) { delete_char_at_cursor(1); }
+static void vi_X(void) { left(1); delete_char_at_cursor(1); }
+static void vi_0(void) { bol(); }
+static void vi_dollar(void) { eol(); }
+static void vi_g(void) { top(); }
+static void vi_G(void) { bottom(); }
+static void vi_w(void) { adv_word(); }
+static void vi_b(void) { prev_word(); }
+static void vi_u(void) { undel_char(); }
+static void vi_colon(void) { command_prompt(); }
+static void vi_slash(void) { search_prompt(); }
+
+static vi_command_handler vi_command_table[256] = {
+    ['h'] = vi_h,
+    ['j'] = vi_j,
+    ['k'] = vi_k,
+    ['l'] = vi_l,
+    ['i'] = vi_i,
+    ['I'] = vi_I,
+    ['a'] = vi_a,
+    ['A'] = vi_A,
+    ['o'] = vi_o,
+    ['O'] = vi_O,
+    ['x'] = vi_x,
+    ['X'] = vi_X,
+    ['0'] = vi_0,
+    ['$'] = vi_dollar,
+    ['g'] = vi_g,
+    ['G'] = vi_G,
+    ['w'] = vi_w,
+    ['b'] = vi_b,
+    ['u'] = vi_u,
+    [':'] = vi_colon,
+    ['/'] = vi_slash
+};
+
 void vi_command(int c) {
-  switch (c) {
-  case 'h':
-    left(1);
-    break;
-  case 'j':
-    down();
-    break;
-  case 'k':
-    up();
-    break;
-  case 'l':
-    right(1);
-    break;
-  case 'i':
-    vi_insert_mode = true;
-    break;
-  case 'I':
-    bol();
-    vi_insert_mode = true;
-    break;
-  case 'a':
-    right(1);
-    vi_insert_mode = true;
-    break;
-  case 'A':
-    eol();
-    vi_insert_mode = true;
-    break;
-  case 'o':
-    eol();
-    control_newline();
-    vi_insert_mode = true;
-    break;
-  case 'O':
-    bol();
-    control_newline();
-    up();
-    vi_insert_mode = true;
-    break;
-  case 'x':
-    delete_char_at_cursor(1);
-    break;
-  case 'X':
-    left(1);
-    delete_char_at_cursor(1);
-    break;
-  case '0':
-    bol();
-    break;
-  case '$':
-    eol();
-    break;
-  case 'g':
-    top();
-    break;
-  case 'G':
-    bottom();
-    break;
-  case 'w':
-    adv_word();
-    break;
-  case 'b':
-    prev_word();
-    break;
-  case 'u':
-    undel_char();
-    break;
-  case ':'
-    command_prompt();
-    break;
-  case '/':
-    search_prompt();
-    break;
+  if (c >= 0 && c < 256 && vi_command_table[c] != nullptr) {
+    vi_command_table[c]();
   }
 }
 
