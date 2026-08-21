@@ -213,9 +213,6 @@ int libedit_getc(EditLine *e, wchar_t *cp) {
 #endif
 
 #ifdef HAS_ICU
-#ifdef SAFETYCHECK
-#define RESDIR_PATH "/usr/local/share/ee/"
-#endif
 UResourceBundle *icu_bundle = nullptr;
 #endif
 
