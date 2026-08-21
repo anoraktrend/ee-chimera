@@ -219,7 +219,8 @@ void draw_line(int vertical, int horiz, struct text *restrict line, int t_pos) {
   }
   ee_wmove(text_win, row, column);
   ee_wclrtoeol(text_win);
-  while ((posit < line->line_length) && (column <= last_col)) {
+  int max_column = last_col;
+  while ((posit < line->line_length) && (column <= max_column)) {
     int attr = A_NORMAL;
 #ifdef HAS_TREESITTER
     attr = get_node_attribute(line_no, posit - 1);
@@ -245,50 +246,49 @@ void draw_line(int vertical, int horiz, struct text *restrict line, int t_pos) {
       UChar32 c;
       U8_NEXT(temp, i, (int32_t)(line->line_length - posit + 1), c);
       if (c < 0) {
-        // Invalid UTF-8, just print byte
+        // Invalid UTF-8: fallback to single-byte
+        ee_waddch(text_win, *temp);
         abs_column++;
         column++;
-        ee_waddch(text_win, *temp);
         posit++;
         temp++;
       } else {
-        if (c == '\t' || c < 32 || c == 127) {
-          column += u_char_width(c, abs_column);
-          abs_column += out_char(text_win, (int)c, abs_column);
-        } else {
-          // Use addwstr or similar for better support, but waddch with UTF-8
-          // bytes also works in ncursesw if we add them correctly.
-          // For simplicity, we add bytes one by one but they form a sequence.
+        // Branchless width calculation
+        int w = u_char_width(c, abs_column);
+        if (w == 1) {
           for (int j = 0; j < i; j++) {
             ee_waddch(text_win, temp[j]);
           }
-          int w = u_char_width(c, abs_column);
-          abs_column += w;
-          column += w;
+        } else {
+          abs_column += out_char(text_win, (int)c, abs_column);
         }
+        abs_column += w;
+        column += w;
         posit += i;
         temp += i;
       }
     } else {
-      if (isprint(*temp) == 0) {
-        column += len_char(*temp, abs_column);
-        abs_column += out_char(text_win, *temp, abs_column);
-      } else {
-        abs_column++;
-        column++;
+      // Branchless: Use char_len_table to avoid branching
+      int char_len = len_char(*temp, abs_column);
+      column += char_len;
+      abs_column += char_len;
+      if (char_len == 1) {
         ee_waddch(text_win, *temp);
+      } else {
+        abs_column += out_char(text_win, *temp, abs_column);
       }
       posit++;
       temp++;
     }
 #else
-    if (isprint(*temp) == 0) {
-      column += len_char(*temp, abs_column);
-      abs_column += out_char(text_win, *temp, abs_column);
-    } else {
-      abs_column++;
-      column++;
+    // Branchless: Use char_len_table to avoid branching
+    int char_len = len_char(*temp, abs_column);
+    column += char_len;
+    abs_column += char_len;
+    if (char_len == 1) {
       ee_waddch(text_win, *temp);
+    } else {
+      abs_column += out_char(text_win, *temp, abs_column);
     }
     posit++;
     temp++;
