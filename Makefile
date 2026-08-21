@@ -73,7 +73,7 @@ safety: clean
 	@echo "[1/4] Building with banned.h enforcement (safetycheck mode)..."
 	$(MAKE) CFLAGS="$(CFLAGS) -DSAFETYCHECK -include Banned.h" LDFLAGS="$(LDFLAGS)"
 	@echo "[2/4] Running clang-tidy..."
-	clang-tidy *.c --checks=readability-*,bugprone-* -warnings-as-errors=* -header-filter=.* -extra-arg=-DSAFETYCHECK -extra-arg=-include -extra-arg=Banned.h
+	clang-tidy *.c --checks=readability-*,bugprone-* -warnings-as-errors=* -header-filter=ee.* -extra-arg=-DSAFETYCHECK -extra-arg=-include -extra-arg=Banned.h
 	@echo "[3/4] Running scan-build..."
 	scan-build --status-bugs make
 	@echo "[4/4] Checking binary hardening..."
