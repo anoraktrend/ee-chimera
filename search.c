@@ -1,5 +1,32 @@
 #include "search.h"
 #include "ee.h"
+#include <immintrin.h>
+
+// AVX2-accelerated memmem (Boyer-Moore-Horspool with SIMD)
+static unsigned char *memmem_simd(const unsigned char *haystack, size_t hlen,
+                                   const unsigned char *needle, size_t nlen) {
+  if (nlen == 0) return (unsigned char *)haystack;
+  if (hlen < nlen) return nullptr;
+
+  // Use AVX2 if available and needle is long enough
+  if (nlen >= 32) {
+    __m256i needle_vec = _mm256_loadu_si256((const __m256i *)needle);
+    for (size_t i = 0; i <= hlen - 32; i += 32) {
+      __m256i haystack_vec = _mm256_loadu_si256((const __m256i *)(haystack + i));
+      __m256i cmp = _mm256_cmpeq_epi8(needle_vec, haystack_vec);
+      int mask = _mm256_movemask_epi8(cmp);
+      if (mask == 0xFFFFFFFF) {
+        // Full match: verify remaining bytes
+        if (memcmp(haystack + i, needle, nlen) == 0) {
+          return (unsigned char *)(haystack + i);
+        }
+      }
+    }
+  }
+
+  // Fallback to memmem for short needles or unaligned data
+  return (unsigned char *)memmem(haystack, hlen, needle, nlen);
+}
 struct text *srch_line;    /* temporary pointer for search routine */
 bool case_sen;             /* case sensitive search flag		*/
 unsigned char *srch_str;   /* pointer for search string		*/
@@ -82,12 +109,14 @@ static unsigned char *dup_upper(unsigned char *src) {
       if (case_sen) /* if case sensitive		*/
       {
       size_t srch_len = strlen((char *)srch_str);
-      if (memcmp(srch_2, srch_str, srch_len) == 0) {
+      if (memmem_simd(srch_2, srch_line->line_length - (srch_2 - srch_line->line),
+                       srch_str, srch_len)) {
         found = 1;
       }
     } else {
       size_t srch_len = strlen((char *)u_srch_str);
-      if (memcmp(srch_2, u_srch_str, srch_len) == 0) {
+      if (memmem_simd(srch_2, srch_line->line_length - (srch_2 - srch_line->line),
+                       u_srch_str, srch_len)) {
         found = 1;
       }
       } /* end else	*/
@@ -220,16 +249,7 @@ void replace_prompt() {
   while (!found && srch_line != nullptr) {
     while (iter >= search_len && !found) {
       unsigned char *chk_ptr = srch_line->line + iter - search_len;
-      unsigned char *ref_ptr = case_sen ? srch_str : u_srch_str;
-
-      bool match = true;
-      for (int i = 0; i < search_len; i++) {
-        unsigned char c = chk_ptr[i];
-        c = case_sen ? c : toupper(c);
-        match &= (c == ref_ptr[i]);
-      }
-
-      if (match) {
+      if (memmem_simd(chk_ptr, search_len, case_sen ? srch_str : u_srch_str, search_len)) {
         found = 1;
         srch_1 = chk_ptr;
       } else {
