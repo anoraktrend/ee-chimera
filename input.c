@@ -2,13 +2,14 @@
  * Input handling for ee (easy editor)
  */
 
-#include "ee.h"
 #include "delete.h"
+#include "ee.h"
 #include "fileio.h"
 #include "format.h"
 #include "lsp.h"
 #include "menu.h"
 #include "search.h"
+#include "state.h"
 #include "theme.h"
 
 // Control handler wrappers
@@ -94,8 +95,10 @@ struct command_map commands_table[] = {
     {"mark", control_mark, "set mark for region", "mark"},
     {"search", control_search, "search for string", "search"},
     {"search_reverse", gold_search_reverse, "search reverse", "reverse"},
-    {"search_prompt", control_search_prompt, "prompt for search string", "srch prmpt"},
-    {"replace_prompt", control_replace_prompt, "prompt for replace string", "repl prmpt"},
+    {"search_prompt", control_search_prompt, "prompt for search string",
+     "srch prmpt"},
+    {"replace_prompt", control_replace_prompt, "prompt for replace string",
+     "repl prmpt"},
     {"command_prompt", control_command_prompt, "enter command mode", "command"},
     {"gold_toggle", control_gold_toggle, "toggle GOLD mode", "GOLD"},
     {"redraw", control_redraw, "redraw the screen", "redraw"},
@@ -249,7 +252,8 @@ control_handler emacs_control_table[1024] = {[1] = bol,
 /* use control for commands (branchless dispatch) */
 void control() {
   bool was_gold = gold;
-  control_handler const *table_ptr = gold ? gold_control_table : base_control_table;
+  control_handler const *table_ptr =
+      gold ? gold_control_table : base_control_table;
   int index = in & 0x1F; // Branchless: in % 32
   control_handler handler = table_ptr[index];
   handler = handler ? handler : no_op;
@@ -330,13 +334,34 @@ static void vi_j(void) { down(); }
 static void vi_k(void) { up(); }
 static void vi_l(void) { right(1); }
 static void vi_i(void) { vi_insert_mode = true; }
-static void vi_I(void) { bol(); vi_insert_mode = true; }
-static void vi_a(void) { right(1); vi_insert_mode = true; }
-static void vi_A(void) { eol(); vi_insert_mode = true; }
-static void vi_o(void) { eol(); control_newline(); vi_insert_mode = true; }
-static void vi_O(void) { bol(); control_newline(); up(); vi_insert_mode = true; }
+static void vi_I(void) {
+  bol();
+  vi_insert_mode = true;
+}
+static void vi_a(void) {
+  right(1);
+  vi_insert_mode = true;
+}
+static void vi_A(void) {
+  eol();
+  vi_insert_mode = true;
+}
+static void vi_o(void) {
+  eol();
+  control_newline();
+  vi_insert_mode = true;
+}
+static void vi_O(void) {
+  bol();
+  control_newline();
+  up();
+  vi_insert_mode = true;
+}
 static void vi_x(void) { delete_char_at_cursor(1); }
-static void vi_X(void) { left(1); delete_char_at_cursor(1); }
+static void vi_X(void) {
+  left(1);
+  delete_char_at_cursor(1);
+}
 static void vi_0(void) { bol(); }
 static void vi_dollar(void) { eol(); }
 static void vi_g(void) { top(); }
@@ -348,28 +373,12 @@ static void vi_colon(void) { command_prompt(); }
 static void vi_slash(void) { search_prompt(); }
 
 static vi_command_handler vi_command_table[256] = {
-    ['h'] = vi_h,
-    ['j'] = vi_j,
-    ['k'] = vi_k,
-    ['l'] = vi_l,
-    ['i'] = vi_i,
-    ['I'] = vi_I,
-    ['a'] = vi_a,
-    ['A'] = vi_A,
-    ['o'] = vi_o,
-    ['O'] = vi_O,
-    ['x'] = vi_x,
-    ['X'] = vi_X,
-    ['0'] = vi_0,
-    ['$'] = vi_dollar,
-    ['g'] = vi_g,
-    ['G'] = vi_G,
-    ['w'] = vi_w,
-    ['b'] = vi_b,
-    ['u'] = vi_u,
-    [':'] = vi_colon,
-    ['/'] = vi_slash
-};
+    ['h'] = vi_h,    ['j'] = vi_j,      ['k'] = vi_k, ['l'] = vi_l,
+    ['i'] = vi_i,    ['I'] = vi_I,      ['a'] = vi_a, ['A'] = vi_A,
+    ['o'] = vi_o,    ['O'] = vi_O,      ['x'] = vi_x, ['X'] = vi_X,
+    ['0'] = vi_0,    ['$'] = vi_dollar, ['g'] = vi_g, ['G'] = vi_G,
+    ['w'] = vi_w,    ['b'] = vi_b,      ['u'] = vi_u, [':'] = vi_colon,
+    ['/'] = vi_slash};
 
 void vi_command(int c) {
   if (c >= 0 && c < 256 && vi_command_table[c] != nullptr) {

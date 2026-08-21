@@ -235,7 +235,7 @@ extern char *mode_strings[12];
 enum { NUM_MODES_ITEMS = 11 };
 enum { READ_FILE = 1, WRITE_FILE = 2, SAVE_FILE = 3 };
 enum { MENU_WARN = 1 };
-enum { CONTROL_KEYS = 0, COMMANDS = 1 };
+enum { CONTROL_KEYS = 0, COMMANDS = 1, GOLD_KEYS = 2, EMACS_KEYS = 3 };
 enum { BASE_TABLE = 0, GOLD_TABLE = 1, EMACS_TABLE = 2 };
 
 #define ASCII_DEL 127

@@ -286,22 +286,23 @@ static void undo_apply_splice(undo_entry *entry) {
     return;
 
   size_t dest_pos = 0;
-  for (size_t i = 0; i < (size_t)entry->column && dest_pos < (size_t)new_len; i++) {
+  for (size_t i = 0; i < (size_t)entry->column && dest_pos < (size_t)new_len;
+       i++) {
     new_line[dest_pos++] = line->line[i];
   }
-  for (size_t i = 0; i < (size_t)entry->length && dest_pos < (size_t)new_len; i++) {
+  for (size_t i = 0; i < (size_t)entry->length && dest_pos < (size_t)new_len;
+       i++) {
     new_line[dest_pos++] = entry->data[i];
   }
-  for (size_t i = entry->column; i < (size_t)line->line_length && dest_pos < (size_t)new_len; i++) {
+  for (size_t i = entry->column;
+       i < (size_t)line->line_length && dest_pos < (size_t)new_len; i++) {
     new_line[dest_pos++] = line->line[i];
   }
-  pos = dest_pos;
-
-  new_line[pos] = '\0';
+  new_line[dest_pos] = '\0';
 
   free(line->line);
   line->line = new_line;
-  line->line_length = pos;
+  line->line_length = (int)dest_pos;
 }
 
 /* shared by UNDO_DELETE and UNDO_CUT: excise entry->length bytes at column */
@@ -322,19 +323,19 @@ static void undo_apply_remove(undo_entry *entry) {
     return;
 
   size_t dest_pos = 0;
-  for (size_t i = 0; i < (size_t)entry->column && dest_pos < (size_t)new_length; i++) {
+  for (size_t i = 0; i < (size_t)entry->column && dest_pos < (size_t)new_length;
+       i++) {
     new_line[dest_pos++] = line->line[i];
   }
-  for (size_t i = entry->column + entry->length; i < (size_t)line->line_length && dest_pos < (size_t)new_length; i++) {
+  for (size_t i = entry->column + entry->length;
+       i < (size_t)line->line_length && dest_pos < (size_t)new_length; i++) {
     new_line[dest_pos++] = line->line[i];
   }
-  pos = dest_pos;
-
-  new_line[pos] = '\0';
+  new_line[dest_pos] = '\0';
 
   free(line->line);
   line->line = new_line;
-  line->line_length = pos;
+  line->line_length = (int)dest_pos;
 }
 
 static void undo_perform_move(undo_entry *entry) {

@@ -95,8 +95,8 @@ int menu_op(struct menu_entries menu_list[]) {
   }
   max_width += 3;
   max_width = max_int(max_width, (int)strlen(menu_cancel_msg));
-  max_width = max_int(
-      max_width, max_int((int)strlen(more_above_str), (int)strlen(more_below_str)));
+  max_width = max_int(max_width, max_int((int)strlen(more_above_str),
+                                         (int)strlen(more_below_str)));
   max_width += 6;
 
   /*
@@ -137,7 +137,8 @@ int menu_op(struct menu_entries menu_list[]) {
   }
   x_off = (COLS - max_width) / 2;
   y_off = (LINES - max_height - 1) / 2;
-  temp_win = profiling_mode ? nullptr : newwin(max_height, max_width, y_off, x_off);
+  temp_win =
+      profiling_mode ? nullptr : newwin(max_height, max_width, y_off, x_off);
   ee_keypad(temp_win, true);
 
   paint_menu(menu_list, max_width, max_height, list_size, top_offset, temp_win,
@@ -246,8 +247,8 @@ int menu_op(struct menu_entries menu_list[]) {
   delwin(temp_win);
 
   if (counter > 0 && ((menu_list[counter].procedure != nullptr) ||
-      (menu_list[counter].procedure2 != nullptr) ||
-      (menu_list[counter].procedure3 != nullptr))) {
+                      (menu_list[counter].procedure2 != nullptr) ||
+                      (menu_list[counter].procedure3 != nullptr))) {
     if (menu_list[counter].value != -1) {
       (*menu_list[counter].procedure2)(menu_list[counter].value);
     } else if (menu_list[counter].ptr_menu != nullptr) {
@@ -264,9 +265,9 @@ int menu_op(struct menu_entries menu_list[]) {
 
   return counter;
 }
-void paint_menu(struct menu_entries menu_list[], int max_width,
-                       int max_height, int list_size, int top_offset,
-                       WINDOW *menu_win, int off_start, int vert_size) {
+void paint_menu(struct menu_entries menu_list[], int max_width, int max_height,
+                int list_size, int top_offset, WINDOW *menu_win, int off_start,
+                int vert_size) {
   int counter;
   int temp_int;
 
@@ -327,7 +328,7 @@ void paint_menu(struct menu_entries menu_list[], int max_width,
       ee_wmove(menu_win, (top_offset + counter - off_start), 3);
       if (list_size > 1) {
         ee_wprintw(menu_win, "%c) ",
-                item_alpha[min_int((counter - 1), MAX_ALPHA_CHAR)]);
+                   item_alpha[min_int((counter - 1), MAX_ALPHA_CHAR)]);
       }
       ee_waddstr(menu_win, menu_list[counter].item_string);
       if (off_start > 1) {
@@ -344,7 +345,7 @@ void paint_menu(struct menu_entries menu_list[], int max_width,
       ee_wmove(menu_win, (top_offset + counter - 1), 3);
       if (list_size > 1) {
         ee_wprintw(menu_win, "%c) ",
-                item_alpha[min_int((counter - 1), MAX_ALPHA_CHAR)]);
+                   item_alpha[min_int((counter - 1), MAX_ALPHA_CHAR)]);
       }
       ee_waddstr(menu_win, menu_list[counter].item_string);
     }
@@ -358,24 +359,25 @@ void modes_op() {
   do {
     // item_string sizes are 128 bytes allocated in menu init
     snprintf(modes_menu[1].item_string, 128, "%s %s", mode_strings[1],
-            (expand_tabs ? STATE_ON : STATE_OFF));
+             (expand_tabs ? STATE_ON : STATE_OFF));
     snprintf(modes_menu[2].item_string, 128, "%s %s", mode_strings[2],
-            (case_sen ? STATE_ON : STATE_OFF));
+             (case_sen ? STATE_ON : STATE_OFF));
     snprintf(modes_menu[3].item_string, 128, "%s %s", mode_strings[3],
-            (observ_margins ? STATE_ON : STATE_OFF));
+             (observ_margins ? STATE_ON : STATE_OFF));
     snprintf(modes_menu[4].item_string, 128, "%s %s", mode_strings[4],
-            (auto_format ? STATE_ON : STATE_OFF));
+             (auto_format ? STATE_ON : STATE_OFF));
     snprintf(modes_menu[5].item_string, 128, "%s %s", mode_strings[5],
-            (eightbit ? STATE_ON : STATE_OFF));
+             (eightbit ? STATE_ON : STATE_OFF));
     snprintf(modes_menu[6].item_string, 128, "%s %s", mode_strings[6],
-            (info_window ? STATE_ON : STATE_OFF));
+             (info_window ? STATE_ON : STATE_OFF));
     snprintf(modes_menu[7].item_string, 128, "%s %s", mode_strings[7],
-            (emacs_keys_mode ? STATE_ON : STATE_OFF));
+             (emacs_keys_mode ? STATE_ON : STATE_OFF));
     snprintf(modes_menu[8].item_string, 128, "%s %s", mode_strings[8],
-            (vi_keys_mode ? STATE_ON : STATE_OFF));
-    snprintf(modes_menu[9].item_string, 128, "%s %d", mode_strings[9], right_margin);
+             (vi_keys_mode ? STATE_ON : STATE_OFF));
+    snprintf(modes_menu[9].item_string, 128, "%s %d", mode_strings[9],
+             right_margin);
     snprintf(modes_menu[10].item_string, 128, "%s %s", mode_strings[10],
-            (ee_chinese ? STATE_ON : STATE_OFF));
+             (ee_chinese ? STATE_ON : STATE_OFF));
 
     ret_value = menu_op(modes_menu);
 
@@ -416,13 +418,15 @@ void modes_op() {
       break;
     case 7:
       emacs_keys_mode = !emacs_keys_mode;
-      if (emacs_keys_mode) vi_keys_mode = false;
+      if (emacs_keys_mode)
+        vi_keys_mode = false;
       update_libedit_mode();
       resize_info_win();
       break;
     case 8:
       vi_keys_mode = !vi_keys_mode;
-      if (vi_keys_mode) emacs_keys_mode = false;
+      if (vi_keys_mode)
+        emacs_keys_mode = false;
       update_libedit_mode();
       resize_info_win();
       break;

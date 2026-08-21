@@ -2,8 +2,8 @@
  * Editor state management for ee (easy editor)
  */
 
-#include "ee.h"
 #include "delete.h"
+#include "ee.h"
 #include "fileio.h"
 #include "format.h"
 #include "input.h"
@@ -36,7 +36,8 @@ bool clear_com_win;           /* flag to indicate com_win needs clearing */
 bool text_changes = false;    /* indicate changes have been made to text */
 bool info_window = true;      /* flag to indicate if help window visible */
 int info_type = CONTROL_KEYS; /* flag to indicate type of info to display */
-bool expand_tabs = true;      /* flag for expanding tabs        */
+static time_t last_redraw_time = 0;
+bool expand_tabs = true; /* flag for expanding tabs        */
 bool formatted = false;
 bool pasting_mode = false;
 bool formatting_in_progress = false;
@@ -55,19 +56,19 @@ bool emacs_keys_mode = false;    /* mode for if emacs key binings are used    */
 bool vi_keys_mode = false;
 bool vi_insert_mode = false;
 bool ee_chinese = false; /* allows handling of multi-byte characters  */
-                          /* by checking for high bit in a byte the    */
-                          /* code recognizes a two-byte character      */
-                          /* sequence                    */
+                         /* by checking for high bit in a byte the    */
+                         /* code recognizes a two-byte character      */
+                         /* sequence                    */
 
-unsigned char *point; /* points to current position in line    */
-char *print_command = (char *) "lpr"; /* string to use for the print command    */
-char *start_at_line = nullptr; /* move to this line at start of session*/
-int in;                        /* input character            */
+unsigned char *point;                /* points to current position in line    */
+char *print_command = (char *)"lpr"; /* string to use for the print command */
+char *start_at_line = nullptr;       /* move to this line at start of session*/
+int in;                              /* input character            */
 
-static char *const table[] = {"^@", "^A", "^B", "^C", "^D",  "^E", "^F", "^G",
-                               "^H", "\t", "^J", "^K", "^L",  "^M", "^N", "^O",
-                               "^P", "^Q", "^R", "^S", "^T",  "^U", "^V", "^W",
-                               "^X", "^Y", "^Z", "^[", "^\\", "^]", "^^", "^_"};
+char *const table[] = {"^@", "^A", "^B", "^C", "^D",  "^E", "^F", "^G",
+                       "^H", "\t", "^J", "^K", "^L",  "^M", "^N", "^O",
+                       "^P", "^Q", "^R", "^S", "^T",  "^U", "^V", "^W",
+                       "^X", "^Y", "^Z", "^[", "^\\", "^]", "^^", "^_"};
 
 WINDOW *com_win;
 WINDOW *text_win;
@@ -100,7 +101,8 @@ int main(int argc, char *argv[]) {
   signal(SIGCHLD, SIG_DFL);
   signal(SIGSEGV, SIG_DFL);
   signal(SIGINT, edit_abort);
-  d_char = (unsigned char *)malloc(8); /* provide a buffer for multi-byte chars */
+  d_char =
+      (unsigned char *)malloc(8); /* provide a buffer for multi-byte chars */
   d_word = (unsigned char *)malloc(MAX_WORD_LEN);
   *d_word = '\0';
   d_line = nullptr;
@@ -352,7 +354,7 @@ int main(int argc, char *argv[]) {
 }
 
 /* travel to the top or bottom edge of the file    */
-static void goto_buffer_edge(bool const to_bottom) {
+void goto_buffer_edge(bool const to_bottom) {
   while (to_bottom ? curr_line->next_line != nullptr
                    : curr_line->prev_line != nullptr) {
     curr_line = to_bottom ? curr_line->next_line : curr_line->prev_line;

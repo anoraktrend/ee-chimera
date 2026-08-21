@@ -6,6 +6,9 @@ LDFLAGS ?= -lcursesw
 
 # Feature flags (set in config.mk or via configure.sh)
 CFLAGS += -DHAS_LSP -DHAS_TREE_SITTER -DHAS_ICU
+
+# make safety: hard-fail any use of banned APIs (see Banned.h for reasons)
+CFLAGS += -include $(CURDIR)/Banned.h
 SCDOC ?= scdoc
 
 PREFIX ?= /usr/local

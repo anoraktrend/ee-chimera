@@ -11,24 +11,24 @@ int file_op_wrapper(int arg);
 void print_buffer(void);
 ssize_t strscpy(char *dest, const char *src, size_t count);
 
-bool input_file;           /* indicate to read input file		*/
-bool recv_file;            /* indicate reading a file		*/
-int fildes;                /* file descriptor			*/
-int get_fd;                /* file descriptor for reading a file	*/
+bool input_file; /* indicate to read input file		*/
+bool recv_file;  /* indicate reading a file		*/
+int fildes;      /* file descriptor			*/
+int get_fd;      /* file descriptor for reading a file	*/
 int shell_fork;
-int temp_stdin;           /* temporary storage for stdin		*/
-int temp_stdout;          /* temp storage for stdout descriptor	*/
-int temp_stderr;          /* temp storage for stderr descriptor	*/
-int pipe_out[2];          /* pipe file desc for output		*/
-int pipe_in[2];           /* pipe file descriptors for input	*/
-bool out_pipe;            /* flag that info is piped out		*/
-bool in_pipe;             /* flag that info is piped in		*/
+int temp_stdin;               /* temporary storage for stdin		*/
+int temp_stdout;              /* temp storage for stdout descriptor	*/
+int temp_stderr;              /* temp storage for stderr descriptor	*/
+int pipe_out[2];              /* pipe file desc for output		*/
+int pipe_in[2];               /* pipe file descriptors for input	*/
+bool out_pipe;                /* flag that info is piped out		*/
+bool in_pipe;                 /* flag that info is piped in		*/
 char *in_file_name = nullptr; /* name of input file		*/
-char *tmp_file;        /* temporary file name			*/
+char *tmp_file;               /* temporary file name			*/
 unsigned char
     in_string[MAX_IN_STRING]; /* buffer for reading a file		*/
-FILE *temp_fp;    /* temporary file pointer		*/
-FILE *bit_bucket; /* file pointer to /dev/null		*/
+FILE *temp_fp;                /* temporary file pointer		*/
+FILE *bit_bucket;             /* file pointer to /dev/null		*/
 struct menu_entries file_menu[] = {
     {"", nullptr, nullptr, nullptr, nullptr, -1},
     {"", nullptr, nullptr, file_op_wrapper, nullptr, READ_FILE},
@@ -184,7 +184,8 @@ void get_file(const char *file_name) {
   {
     ee_wmove(com_win, 0, 0);
     ee_wclrtoeol(com_win);
-    ee_wprintw(com_win, file_read_lines_msg, in_file_name, curr_line->line_number);
+    ee_wprintw(com_win, file_read_lines_msg, in_file_name,
+               curr_line->line_number);
     if (ro_flag != 0) {
       ee_wprintw(com_win, "%s", read_only_msg);
     }
@@ -342,7 +343,8 @@ void sh_command(const char *string) {
     resetty();
 
 #ifndef NCURSE
-    if(!profiling_mode) endwin();
+    if (!profiling_mode)
+      endwin();
 #endif
   }
 
@@ -475,13 +477,17 @@ void sh_command(const char *string) {
 
   if (!in_pipe) {
     fixterm();
-    if(!profiling_mode) noecho();
-    if(!profiling_mode) nonl();
-    if(!profiling_mode) raw();
+    if (!profiling_mode)
+      noecho();
+    if (!profiling_mode)
+      nonl();
+    if (!profiling_mode)
+      raw();
     ee_keypad(text_win, true);
     ee_keypad(com_win, true);
     if (info_window) {
-      if(!profiling_mode) clearok(info_win, true);
+      if (!profiling_mode)
+        clearok(info_win, true);
     }
   }
 

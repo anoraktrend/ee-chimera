@@ -2,7 +2,9 @@
  * Rendering logic for ee (easy editor)
  */
 
+#include "render.h"
 #include "ee.h"
+#include "state.h"
 #include "theme.h"
 
 #ifdef HAS_ICU
@@ -23,6 +25,10 @@ extern struct diagnostic *diagnostics_list;
 
 /* give the number of spaces to shift */
 int tabshift(int temp_int) { return 8 - (temp_int & 7); }
+
+static constexpr int char_len_table[256] = {[0 ... 8] = 2,   [9] = -1,
+                                            [10 ... 31] = 2, [32 ... 126] = 1,
+                                            [127] = 2,       [128 ... 255] = 1};
 
 int out_char(WINDOW *restrict window, int character, int column) {
   int i1;

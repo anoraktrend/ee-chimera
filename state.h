@@ -55,6 +55,8 @@ extern char *print_command;         /* string to use for the print command    */
 extern char *start_at_line;          /* move to this line at start of session*/
 extern int in;                       /* input character            */
 extern char *const table[];
+void goto_buffer_edge(bool const to_bottom);
+extern char const *separator;
 
 extern WINDOW *com_win;
 extern WINDOW *text_win;

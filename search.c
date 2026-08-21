@@ -1,30 +1,51 @@
 #include "search.h"
 #include "ee.h"
+#ifdef __x86_64__
 #include <immintrin.h>
+#endif
 
-// AVX2-accelerated memmem (Boyer-Moore-Horspool with SIMD)
-static unsigned char *memmem_simd(const unsigned char *haystack, size_t hlen,
-                                   const unsigned char *needle, size_t nlen) {
-  if (nlen == 0) return (unsigned char *)haystack;
-  if (hlen < nlen) return nullptr;
-
-  // Use AVX2 if available and needle is long enough
-  if (nlen >= 32) {
-    __m256i needle_vec = _mm256_loadu_si256((const __m256i *)needle);
-    for (size_t i = 0; i <= hlen - 32; i += 32) {
-      __m256i haystack_vec = _mm256_loadu_si256((const __m256i *)(haystack + i));
-      __m256i cmp = _mm256_cmpeq_epi8(needle_vec, haystack_vec);
-      int mask = _mm256_movemask_epi8(cmp);
-      if (mask == 0xFFFFFFFF) {
-        // Full match: verify remaining bytes
-        if (memcmp(haystack + i, needle, nlen) == 0) {
-          return (unsigned char *)(haystack + i);
-        }
+#ifdef __x86_64__
+// AVX2 kernel: requires target feature so intrinsics inline correctly
+__attribute__((target("avx2"))) static unsigned char *
+memmem_avx2(const unsigned char *haystack, size_t hlen,
+            const unsigned char *needle, size_t nlen) {
+  __m256i needle_vec = _mm256_loadu_si256((const __m256i *)needle);
+  for (size_t i = 0; i <= hlen - 32; i += 32) {
+    __m256i haystack_vec = _mm256_loadu_si256((const __m256i *)(haystack + i));
+    __m256i cmp = _mm256_cmpeq_epi8(needle_vec, haystack_vec);
+    int mask = _mm256_movemask_epi8(cmp);
+    if (mask == 0xFFFFFFFF) {
+      // Full match: verify remaining bytes
+      if (memcmp(haystack + i, needle, nlen) == 0) {
+        return (unsigned char *)(haystack + i);
       }
     }
   }
+  return nullptr;
+}
+#endif
 
-  // Fallback to memmem for short needles or unaligned data
+// AVX2-accelerated memmem with runtime dispatch
+static unsigned char *memmem_simd(const unsigned char *haystack, size_t hlen,
+                                  const unsigned char *needle, size_t nlen) {
+  if (nlen == 0)
+    return (unsigned char *)haystack;
+  if (hlen < nlen)
+    return nullptr;
+
+#ifdef __x86_64__
+  // Use AVX2 if the CPU supports it and needle is long enough
+  static int have_avx2 = -1;
+  if (have_avx2 < 0)
+    have_avx2 = __builtin_cpu_supports("avx2");
+  if (have_avx2 && nlen >= 32) {
+    unsigned char *hit = memmem_avx2(haystack, hlen, needle, nlen);
+    if (hit != nullptr)
+      return hit;
+  }
+#endif
+
+  // Fallback to memmem for short needles or non-x86_64 targets
   return (unsigned char *)memmem(haystack, hlen, needle, nlen);
 }
 struct text *srch_line;    /* temporary pointer for search routine */
@@ -108,17 +129,19 @@ static unsigned char *dup_upper(unsigned char *src) {
       srch_2 = srch_1;
       if (case_sen) /* if case sensitive		*/
       {
-      size_t srch_len = strlen((char *)srch_str);
-      if (memmem_simd(srch_2, srch_line->line_length - (srch_2 - srch_line->line),
-                       srch_str, srch_len)) {
-        found = 1;
-      }
-    } else {
-      size_t srch_len = strlen((char *)u_srch_str);
-      if (memmem_simd(srch_2, srch_line->line_length - (srch_2 - srch_line->line),
-                       u_srch_str, srch_len)) {
-        found = 1;
-      }
+        size_t srch_len = strlen((char *)srch_str);
+        if (memmem_simd(srch_2,
+                        srch_line->line_length - (srch_2 - srch_line->line),
+                        srch_str, srch_len)) {
+          found = 1;
+        }
+      } else {
+        size_t srch_len = strlen((char *)u_srch_str);
+        if (memmem_simd(srch_2,
+                        srch_line->line_length - (srch_2 - srch_line->line),
+                        u_srch_str, srch_len)) {
+          found = 1;
+        }
       } /* end else	*/
       if ((*srch_3 != '\0') || !(found != 0)) {
         found = 0;
@@ -249,7 +272,8 @@ void replace_prompt() {
   while (!found && srch_line != nullptr) {
     while (iter >= search_len && !found) {
       unsigned char *chk_ptr = srch_line->line + iter - search_len;
-      if (memmem_simd(chk_ptr, search_len, case_sen ? srch_str : u_srch_str, search_len)) {
+      if (memmem_simd(chk_ptr, search_len, case_sen ? srch_str : u_srch_str,
+                      search_len)) {
         found = 1;
         srch_1 = chk_ptr;
       } else {
