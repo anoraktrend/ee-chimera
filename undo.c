@@ -285,11 +285,17 @@ static void undo_apply_splice(undo_entry *entry) {
   if (!new_line)
     return;
 
-  memcpy(new_line, line->line, entry->column);
-  memcpy(new_line + entry->column, entry->data, entry->length);
-  memcpy(new_line + entry->column + entry->length, line->line + entry->column,
-         line->line_length - entry->column);
-  pos = entry->column + entry->length + (line->line_length - entry->column);
+  size_t dest_pos = 0;
+  for (size_t i = 0; i < (size_t)entry->column && dest_pos < (size_t)new_len; i++) {
+    new_line[dest_pos++] = line->line[i];
+  }
+  for (size_t i = 0; i < (size_t)entry->length && dest_pos < (size_t)new_len; i++) {
+    new_line[dest_pos++] = entry->data[i];
+  }
+  for (size_t i = entry->column; i < (size_t)line->line_length && dest_pos < (size_t)new_len; i++) {
+    new_line[dest_pos++] = line->line[i];
+  }
+  pos = dest_pos;
 
   new_line[pos] = '\0';
 
@@ -315,10 +321,14 @@ static void undo_apply_remove(undo_entry *entry) {
   if (!new_line)
     return;
 
-  memcpy(new_line, line->line, entry->column);
-  memcpy(new_line + entry->column, line->line + entry->column + entry->length,
-         line->line_length - entry->column - entry->length);
-  pos = entry->column + (line->line_length - entry->column - entry->length);
+  size_t dest_pos = 0;
+  for (size_t i = 0; i < (size_t)entry->column && dest_pos < (size_t)new_length; i++) {
+    new_line[dest_pos++] = line->line[i];
+  }
+  for (size_t i = entry->column + entry->length; i < (size_t)line->line_length && dest_pos < (size_t)new_length; i++) {
+    new_line[dest_pos++] = line->line[i];
+  }
+  pos = dest_pos;
 
   new_line[pos] = '\0';
 
