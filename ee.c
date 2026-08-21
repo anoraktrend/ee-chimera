@@ -952,9 +952,9 @@ void insert(int character) {
   int counter;
   int value;
 
-  if ((character == '\011') && expand_tabs) {
-    counter = len_char('\011', scr_horz);
-    for (; counter > 0; counter--) {
+  if ((character == '\t') && expand_tabs) {
+    int spaces = len_char('\t', scr_horz);
+    while (spaces--) {
       insert(' ');
     }
 #ifdef HAS_AUTOFORMAT
@@ -981,54 +981,49 @@ void insert(int character) {
   int utf8_len = 1;
 #endif
 
-  // Make sure we have enough space for the full sequence
-  if ((curr_line->max_length - curr_line->line_length) < (utf8_len + 1)) {
-    point = resiz_line(10 + utf8_len, curr_line, position);
+  // Ensure space is available (branchless allocation)
+  if (curr_line->max_length - curr_line->line_length < utf8_len + 1) {
+    point = resiz_line(utf8_len + 10, curr_line, position);
+    if (!point) return; // Allocation failed
   }
 
   text_changes = true;
   size_t move_len = curr_line->line_length - position;
-  /* memmove safely handles overlapping memory regions */
+  /* Bulk move + copy (safe: utf8_buf is local, no overlap) */
   memmove(point + utf8_len, point, move_len);
-
-  for (int i = 0; i < utf8_len; i++) {
-    point[i] = utf8_buf[i];
-  }
+  memcpy(point, utf8_buf, utf8_len); // Safe for non-overlapping local buffers
   curr_line->line_length += utf8_len;
 
   // Update screen once for the whole character
 #ifdef HAS_ICU
   if (ee_chinese) {
     if (character == '\t' || character < 32 || character == 127) {
-      int w = u_char_width(character, scr_horz);
+      scr_horz += u_char_width(character, scr_horz);
       out_char(text_win, character, scr_horz);
-      scr_horz += w;
     } else {
-      // Direct output for printable multi-byte
       for (int i = 0; i < utf8_len; i++) {
         ee_waddch(text_win, utf8_buf[i]);
       }
       scr_horz += u_char_width(character, scr_horz);
     }
   } else {
-    // Treat as individual bytes
-    for (int i = 0; i < utf8_len; i++) {
-      int c = utf8_buf[i];
-      if (isprint(c) == 0) {
-        scr_horz += out_char(text_win, c, scr_horz);
-      } else {
-        ee_waddch(text_win, (unsigned char)c);
-        scr_horz++;
-      }
+    // Branchless: Use len_char table
+    int char_len = len_char(character, scr_horz);
+    scr_horz += char_len;
+    if (char_len == 1) {
+      ee_waddch(text_win, character);
+    } else {
+      out_char(text_win, character, scr_horz);
     }
   }
 #else
-  int c = (unsigned char)character;
-  if (isprint(c) == 0) {
-    scr_horz += out_char(text_win, c, scr_horz);
+  // Branchless: Use len_char table
+  int char_len = len_char(character, scr_horz);
+  scr_horz += char_len;
+  if (char_len == 1) {
+    ee_waddch(text_win, character);
   } else {
-    ee_waddch(text_win, (unsigned char)c);
-    scr_horz++;
+    out_char(text_win, character, scr_horz);
   }
 #endif
 
@@ -2875,7 +2870,7 @@ void generate_dynamic_info() {
         split = width - 1;
 
       int cpy_len = min(split, 255);
-      strncpy(lines_buf[num_info_lines], p, cpy_len);
+      memcpy(lines_buf[num_info_lines], p, cpy_len);
       lines_buf[num_info_lines][cpy_len] = '\0';
       dynamic_info_lines[num_info_lines] = lines_buf[num_info_lines];
       num_info_lines++;
@@ -2883,8 +2878,9 @@ void generate_dynamic_info() {
       while (*p == ' ')
         p++;
     } else {
-      strncpy(lines_buf[num_info_lines], p, 255);
-      lines_buf[num_info_lines][255] = '\0';
+      size_t cpy_len2 = min(len, 255);
+      memcpy(lines_buf[num_info_lines], p, cpy_len2);
+      lines_buf[num_info_lines][cpy_len2] = '\0';
       dynamic_info_lines[num_info_lines] = lines_buf[num_info_lines];
       num_info_lines++;
       break;
