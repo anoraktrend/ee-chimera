@@ -215,7 +215,7 @@ control_handler base_control_table[1024] = {[1] = control_right,
                                             [24] = control_cut,
                                             [25] = adv_word,
                                             [26] = replace_prompt,
-                                            [27] = control_esc};
+                                            [27] = control_esc};  // ESC -> menu
 
 control_handler gold_control_table[1024] = {
     [2] = gold_append,      [3] = del_line,        [6] = search_prompt,

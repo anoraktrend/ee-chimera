@@ -144,6 +144,11 @@ int main(int argc, char *argv[]) {
   if (right_margin == 0) {
     right_margin = COLS - 1;
   }
+  vi_keys_mode = false;
+  emacs_keys_mode = false;
+  vi_insert_mode = false;
+  info_window = true;
+  info_type = CONTROL_KEYS;
   if (top_of_stack == nullptr) {
     if (restrict_mode()) {
       ee_wmove(com_win, 0, 0);
