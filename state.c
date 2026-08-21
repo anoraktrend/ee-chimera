@@ -111,6 +111,7 @@ int main(int argc, char *argv[]) {
   dlt_line->line_length = 0;
   curr_line = first_line = txtalloc();
   curr_line->line = point = (unsigned char *)malloc(MIN_LINE_ALLOC);
+  *point = '\n';  // Add newline to force initial render
   curr_line->line_length = 1;
   curr_line->max_length = MIN_LINE_ALLOC;
   curr_line->prev_line = nullptr;
@@ -149,6 +150,13 @@ int main(int argc, char *argv[]) {
   vi_insert_mode = false;
   info_window = true;
   info_type = CONTROL_KEYS;
+
+  // Force initial render
+  clear();
+  refresh();
+  paint_info_win();
+  ee_wrefresh(com_win);
+  ee_wrefresh(text_win);
   if (top_of_stack == nullptr) {
     if (restrict_mode()) {
       ee_wmove(com_win, 0, 0);
