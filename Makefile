@@ -68,6 +68,17 @@ uninstall:
 	rm -f $(DESTDIR)$(MANDIR)/man5/init.ee.5
 	rm -rf $(DESTDIR)$(RESDIR)
 
+# Safety checks
+safety: clean
+	@echo "[1/4] Building with banned.h enforcement..."
+	$(MAKE) CFLAGS="$(CFLAGS) -include Banned.h" LDFLAGS="$(LDFLAGS)"
+	@echo "[2/4] Running clang-tidy..."
+	clang-tidy *.c --checks=readability-*,bugprone-* -warnings-as-errors=* -header-filter=.* -extra-arg=-include -extra-arg=Banned.h
+	@echo "[3/4] Running scan-build..."
+	scan-build --status-bugs make
+	@echo "[4/4] Checking binary hardening..."
+	checksec --file=ee
+
 clean:
 	rm -f ee *.o ee.1 init.ee.5 root.res cluster.txt symorder.txt perf.data
 
