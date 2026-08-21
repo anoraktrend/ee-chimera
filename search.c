@@ -10,12 +10,18 @@ unsigned char *srch_3;
 
 /* create an uppercase duplicate of src */
 static unsigned char *dup_upper(unsigned char *src) {
-  unsigned char *dst = malloc(strlen((char *)src) + 1);
-  unsigned char *d = dst;
-  for (unsigned char *s = src; *s != '\0'; s++) {
-    *d++ = toupper(*s);
+  if (!src) {
+    return nullptr;
   }
-  *d = '\0';
+  size_t len = strlen((char *)src);
+  unsigned char *dst = malloc(len + 1);
+  if (!dst) {
+    return nullptr;
+  }
+  for (size_t i = 0; i < len; i++) {
+    dst[i] = toupper(src[i]);
+  }
+  dst[len] = '\0';
   return dst;
 }
 [[nodiscard]] bool compare(const char *string1, const char *string2,
@@ -75,20 +81,15 @@ static unsigned char *dup_upper(unsigned char *src) {
       srch_2 = srch_1;
       if (case_sen) /* if case sensitive		*/
       {
-        srch_3 = srch_str;
-        while ((*srch_2 == *srch_3) && (*srch_3 != '\0')) {
-          found = 1;
-          srch_2++;
-          srch_3++;
-        } /* end while	*/
-      } else /* if not case sensitive	*/
-      {
-        srch_3 = u_srch_str;
-        while ((toupper(*srch_2) == *srch_3) && (*srch_3 != '\0')) {
-          found = 1;
-          srch_2++;
-          srch_3++;
-        }
+      size_t srch_len = strlen((char *)srch_str);
+      if (memcmp(srch_2, srch_str, srch_len) == 0) {
+        found = 1;
+      }
+    } else {
+      size_t srch_len = strlen((char *)u_srch_str);
+      if (memcmp(srch_2, u_srch_str, srch_len) == 0) {
+        found = 1;
+      }
       } /* end else	*/
       if ((*srch_3 != '\0') || !(found != 0)) {
         found = 0;
@@ -141,39 +142,47 @@ static unsigned char *dup_upper(unsigned char *src) {
   return found;
 }
 void search_prompt() {
+  char *new_srch_str = get_string(search_prompt_str, 0);
+  if (!new_srch_str) {
+    return; // get_string failed; retain old srch_str
+  }
   if (srch_str != nullptr) {
     free(srch_str);
   }
-  if ((u_srch_str != nullptr) && (*u_srch_str != '\0')) {
+  if (u_srch_str != nullptr) {
     free(u_srch_str);
   }
-  srch_str = (unsigned char *)get_string(search_prompt_str, 0);
+  srch_str = (unsigned char *)new_srch_str;
   gold = false;
   u_srch_str = dup_upper(srch_str);
-  srch_1 = u_srch_str + strlen((char *)u_srch_str);
+  srch_1 = u_srch_str ? u_srch_str + strlen((char *)u_srch_str) : nullptr;
   (void)search(1);
 }
 void replace_prompt() {
   char *search_term = get_string("Replace: ", 0);
-  if (!search_term || *search_term == '\0')
+  if (!search_term || *search_term == '\0') {
     return;
+  }
   char *replace_term = get_string("With: ", 0);
-  if (srch_str != nullptr)
+  if (srch_str != nullptr) {
     free(srch_str);
-  if (u_srch_str != nullptr)
+  }
+  if (u_srch_str != nullptr) {
     free(u_srch_str);
+  }
   srch_str = (unsigned char *)search_term;
   u_srch_str = dup_upper(srch_str);
   srch_1 = u_srch_str + strlen((char *)u_srch_str);
   int found = search(1);
   if (found) {
     int len = strlen((char *)search_term);
+    // Bulk delete
     for (int i = 0; i < len; i++) {
-      in = 8;
       delete_char_at_cursor(1);
     }
+    // Bulk insert
     if (replace_term) {
-      size_t rlen = strlen((char *)replace_term);
+      size_t rlen = strlen(replace_term);
       for (size_t i = 0; i < rlen; i++) {
         insert(replace_term[i]);
       }
@@ -184,8 +193,9 @@ void replace_prompt() {
     ee_wrefresh(com_win);
     clear_com_win = true;
   }
-  if (replace_term)
+  if (replace_term) {
     free(replace_term);
+  }
 }
 [[nodiscard]] int search_reverse(int display_message) {
   if (!srch_str || *srch_str == '\0')
