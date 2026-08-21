@@ -277,7 +277,7 @@ void copy_region(bool cut) {
 
     if (undo_enabled) {
       undo_record(&undo_state, UNDO_CUT, start_line->line_number, start_pos,
-                  del_len, clipboard_buf);
+                   del_len, (unsigned char *)clipboard_buf);
     }
   }
   mark_line = nullptr;
