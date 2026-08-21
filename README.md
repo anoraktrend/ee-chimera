@@ -1,5 +1,7 @@
 # ee (easy editor)
 
+This is a fork and modification of the version of ee available in FreeBSD/chimerautils, which utilizes various techniques to improve performance, security, and usability while retaining the original's simplicity.
+
 The editor 'ee' (easy editor) is intended to be a simple, easy to use terminal-based screen oriented editor that requires no instruction to use. Its primary use would be for people who are new to computers, or who use computers only for things like e-mail.
 
 A primary technical goal of this project is the implementation of **branchless and loopless programming** techniques to optimize performance and reduce processor pipeline stalls.
