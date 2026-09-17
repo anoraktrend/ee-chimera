@@ -18,6 +18,10 @@ void draw_screen(void);
 void midscreen(int line, unsigned char *ptr);
 void top_of_screen(void);
 void paint_info_win(void);
+void generate_dynamic_info(void);
+extern char *dynamic_info_lines[];
+extern int num_info_lines;
+int get_info_win_height(void);
 void resize_info_win(void);
 
 #ifdef HAS_ICU

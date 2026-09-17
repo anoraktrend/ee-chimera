@@ -49,6 +49,17 @@ int out_char(WINDOW *restrict window, int character, int column) {
   } else if (character == 127) {
     string = "^?";
   } else if (character > 127) {
+#ifdef HAS_ICU
+    uint8_t utf8_buf[4];
+    int32_t utf8_len = 0;
+    UErrorCode status = U_ZERO_ERROR;
+    U8_APPEND(utf8_buf, utf8_len, 4, character, status);
+    if (U_SUCCESS(status)) {
+      waddnstr(window, (const char *)utf8_buf, (int)utf8_len);
+      int adv = u_char_width(character, column);
+      return (adv > 0) ? adv : 1;
+    }
+#endif
     if (!eightbit) {
       snprintf(string2, sizeof(string2), "<%d>",
                (character < 0) ? (character + 256) : character);
@@ -259,17 +270,11 @@ void draw_line(int vertical, int horiz, struct text *restrict line, int t_pos) {
         posit++;
         temp++;
       } else {
-        // Branchless width calculation
-        int w = u_char_width(c, abs_column);
-        if (w == 1) {
-          for (int j = 0; j < i; j++) {
-            ee_waddch(text_win, temp[j]);
-          }
-        } else {
-          abs_column += out_char(text_win, (int)c, abs_column);
-        }
-        abs_column += w;
-        column += w;
+        /* out_char emits the codepoint's UTF-8 bytes and returns its
+           display width -- single source of truth for both */
+        int adv = out_char(text_win, (int)c, abs_column);
+        abs_column += adv;
+        column += adv;
         posit += i;
         temp += i;
       }
@@ -374,31 +379,78 @@ void top_of_screen(void) {
 }
 
 void paint_info_win(void) {
-  if (!info_window)
+  int counter;
+  int height, width;
+
+  if (!info_window) {
     return;
+  }
 
-  ee_wmove(info_win, 0, 0);
+  generate_dynamic_info();
+
+  if (info_win == nullptr)
+    return;
+  getmaxyx(info_win, height, width);
+
   ee_werase(info_win);
-
-  if (info_type == CONTROL_KEYS) {
-    for (int i = 0; i < 4; i++) {
-      ee_wmove(info_win, i, 0);
-      ee_wprintw(info_win, "%s", control_keys[i]);
-    }
-  } else if (info_type == GOLD_KEYS) {
-    for (int i = 0; i < 4; i++) {
-      ee_wmove(info_win, i, 0);
-      ee_wprintw(info_win, "%s", gold_control_keys[i]);
-    }
-  } else if (info_type == EMACS_KEYS) {
-    for (int i = 0; i < 4; i++) {
-      ee_wmove(info_win, i, 0);
-      ee_wprintw(info_win, "%s", emacs_control_keys[i]);
+  for (counter = 0; counter < num_info_lines && counter < height - 1;
+       counter++) {
+    ee_wmove(info_win, counter, 0);
+    ee_wclrtoeol(info_win);
+    if (dynamic_info_lines[counter] != nullptr) {
+      ee_waddstr(info_win, dynamic_info_lines[counter]);
     }
   }
 
-  ee_wmove(info_win, 4, 0);
-  ee_wprintw(info_win, "%s", separator);
+  // Construct status line
+  ee_wmove(info_win, height - 1, 0);
+  if (!nohighlight) {
+    wstandout(info_win);
+  }
+
+  char status_buf[128];
+  snprintf(status_buf, sizeof(status_buf),
+           "%s line %d col %d top %d=", (mark_line != nullptr ? "MARK" : ""),
+           curr_line->line_number, scr_pos, absolute_lin);
+  int status_len = strlen(status_buf);
+
+  char const *legend = "^ = Ctrl key ---- access HELP through menu ---";
+  int legend_len = strlen(legend);
+
+  // Draw legend
+  for (int i = 0; i < width && i < legend_len; i++) {
+    ee_waddch(info_win, legend[i]);
+  }
+
+  // Fill with '=' up to status info
+  int current_x = 0;
+  if (!profiling_mode)
+    current_x = getcurx(info_win);
+  int status_start_x = width - status_len;
+  if (status_start_x < current_x) {
+    status_start_x = current_x;
+  }
+
+  for (int i = current_x; i < status_start_x; i++) {
+    ee_waddch(info_win, '=');
+  }
+
+  // Draw status info
+  if (status_start_x < width) {
+    ee_waddstr(info_win, status_buf);
+  }
+
+  // Final fill if needed
+  current_x = 0;
+  if (!profiling_mode)
+    current_x = getcurx(info_win);
+  for (int i = current_x; i < width; i++) {
+    ee_waddch(info_win, '=');
+  }
+
+  if (!nohighlight) {
+    wstandend(info_win);
+  }
   ee_wrefresh(info_win);
 }
 
@@ -406,10 +458,40 @@ void resize_info_win(void) {
   if (!curses_initialized)
     return;
 
-  if (info_window) {
-    wresize(info_win, 5, COLS);
-    mvwin(info_win, LINES - 5, 0);
-    ee_werase(info_win);
+  int new_height = get_info_win_height();
+
+  if (info_win != nullptr) {
+    delwin(info_win);
+    info_win = nullptr;
+  }
+  if (text_win != nullptr) {
+    delwin(text_win);
+    text_win = nullptr;
+  }
+
+  if (new_height > 0) {
+    info_win = profiling_mode ? nullptr : newwin(new_height, COLS, 0, 0);
+    if (info_win != nullptr) {
+      ee_idlok(info_win, true);
+      ee_keypad(info_win, true);
+    }
+    text_win = profiling_mode
+                   ? nullptr
+                   : newwin(LINES - new_height - 1, COLS, new_height, 0);
+  } else {
+    text_win = profiling_mode ? nullptr : newwin(LINES - 1, COLS, 0, 0);
+  }
+
+  if (text_win != nullptr) {
+    ee_keypad(text_win, true);
+    ee_idlok(text_win, true);
+    wtimeout(text_win, 5000);
+    last_line = getmaxy(text_win) - 1;
+  }
+
+  if (info_win != nullptr) {
     paint_info_win();
   }
+  draw_screen();
+  doupdate();
 }

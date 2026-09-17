@@ -215,7 +215,7 @@ control_handler base_control_table[1024] = {[1] = control_right,
                                             [24] = control_cut,
                                             [25] = adv_word,
                                             [26] = replace_prompt,
-                                            [27] = control_esc};  // ESC -> menu
+                                            [27] = control_esc}; // ESC -> menu
 
 control_handler gold_control_table[1024] = {
     [2] = gold_append,      [3] = del_line,        [6] = search_prompt,
@@ -388,6 +388,120 @@ void vi_command(int c) {
 
 /* handle function keys */
 void function_key() {
-  // Placeholder for function_key logic
-  // Will be moved from ee.c in next step
+  if (in == KEY_LEFT) {
+    {
+      left(1);
+    }
+  } else if (in == KEY_RIGHT) {
+    {
+      right(1);
+    }
+  } else if (in == KEY_HOME) {
+    {
+      bol();
+    }
+  } else if (in == KEY_END) {
+    {
+      eol();
+    }
+  } else if (in == KEY_UP) {
+    {
+      up();
+    }
+  } else if (in == KEY_DOWN) {
+    {
+      down();
+    }
+  } else if (in == KEY_NPAGE) {
+    {
+      move_rel('d', max(5, (last_line - 5)));
+    }
+  } else if (in == KEY_PPAGE) {
+    {
+      move_rel('u', max(5, (last_line - 5)));
+    }
+  } else if (in == KEY_DL) {
+    {
+      del_line();
+    }
+  } else if (in == KEY_DC) {
+    {
+      del_char();
+    }
+  } else if (in == KEY_BACKSPACE) {
+    {
+      delete_char_at_cursor(1);
+    }
+  } else if (in == KEY_IL) { /* insert a line before current line	*/
+    insert_line(1);
+    left(1);
+  } else if (in == KEY_F(1)) {
+    {
+      gold = !gold;
+    }
+  } else if (in == KEY_F(2)) {
+    if (gold) {
+      gold = false;
+      undel_line();
+    } else {
+      {
+        undel_char();
+      }
+    }
+  } else if (in == KEY_F(3)) {
+    if (gold) {
+      gold = false;
+      undel_word();
+    } else {
+      {
+        del_word();
+      }
+    }
+  } else if (in == KEY_F(4)) {
+    if (gold) {
+      gold = false;
+      resize_info_win();
+      midscreen(scr_vert, point);
+    } else {
+      {
+        adv_word();
+      }
+    }
+  } else if (in == KEY_F(5)) {
+    if (gold) {
+      gold = false;
+      search_prompt();
+    } else {
+      {
+        search(1);
+      }
+    }
+  } else if (in == KEY_F(6)) {
+    if (gold) {
+      gold = false;
+      bottom();
+    } else {
+      {
+        top();
+      }
+    }
+  } else if (in == KEY_F(7)) {
+    if (gold) {
+      gold = false;
+      eol();
+    } else {
+      {
+        bol();
+      }
+    }
+  } else if (in == KEY_F(8)) {
+    if (gold) {
+      gold = false;
+      command_prompt();
+    } else {
+      {
+        adv_line();
+      }
+    }
+  }
 }

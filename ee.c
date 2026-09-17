@@ -441,9 +441,7 @@ void insert(int character) {
       scr_horz += u_char_width(character, scr_horz);
       out_char(text_win, character, scr_horz);
     } else {
-      for (int i = 0; i < utf8_len; i++) {
-        ee_waddch(text_win, utf8_buf[i]);
-      }
+      waddnstr(text_win, (const char *)utf8_buf, (int)utf8_len);
       scr_horz += u_char_width(character, scr_horz);
     }
   } else {
@@ -619,8 +617,8 @@ void insert_line(int disp) {
     }
     memcpy(temp_nod->line, temp, split_len);
     temp_nod->line_length = split_len;
-    *temp = '\0';
     curr_line->line_length = temp_pos2;
+    *temp = '\0';
     point = resiz_line(0, curr_line, position);
   }
   absolute_lin++;

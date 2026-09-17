@@ -13,6 +13,8 @@
 #include "search.h"
 #include "theme.h"
 #include "undo.h"
+#include <langinfo.h>
+#include <locale.h>
 
 // Global state
 struct text *first_line; /* first line of current buffer        */
@@ -76,6 +78,51 @@ WINDOW *help_win;
 WINDOW *info_win;
 
 /* beginning of main program          */
+static void ee_dump_buffer(int sig) {
+  (void)sig;
+  FILE *dump = fopen("/tmp/opencode/ee_dump.txt", "w");
+  if (dump) {
+    struct text *d = first_line;
+    while (d != nullptr) {
+      fwrite(d->line, 1, d->line_length > 0 ? d->line_length - 1 : 0, dump);
+      fputc('\n', dump);
+      d = d->next_line;
+    }
+    fclose(dump);
+  }
+}
+
+/* single key dispatcher shared by the curses loop and the scripted
+ * profiling loop so tests exercise the same input pipeline */
+void process_key(int k) {
+  in = k;
+  /* handlers read the global (control(), gold logic, ...) */ /* handlers
+                                                                 read the
+                                                                 global
+                                                                 (control(),
+                                                                 gold logic,
+                                                                 ...) */
+  if (k > 255 && k <= 511) {
+    /* curses KEY_* codes top out at 511; larger values are real text */
+    function_key();
+  } else if ((k == '\10') || (k == ASCII_DEL)) {
+    in = ASCII_BACKSPACE; /* make sure key is set to backspace */
+    delete_char_at_cursor(1);
+  } else if ((k > 31) || (k == 9)) {
+    if (vi_keys_mode && !vi_insert_mode) {
+      vi_command(k);
+    } else {
+      insert(k);
+    }
+  } else if ((k >= 0) && (k <= 31)) {
+    if (emacs_keys_mode) {
+      emacs_control();
+    } else {
+      control();
+    }
+  }
+}
+
 int main(int argc, char *argv[]) {
   int counter;
 
@@ -98,9 +145,17 @@ int main(int argc, char *argv[]) {
     exit(1);
   }
 
+  /* multi-byte editing follows the locale automatically */
+  setlocale(LC_ALL, "");
+  const char *ee_codeset = nl_langinfo(CODESET);
+  if ((strstr(ee_codeset, "UTF") != nullptr) ||
+      (strstr(ee_codeset, "utf") != nullptr)) {
+    ee_chinese = true;
+  }
   signal(SIGCHLD, SIG_DFL);
   signal(SIGSEGV, SIG_DFL);
   signal(SIGINT, edit_abort);
+  signal(SIGUSR1, ee_dump_buffer);
   d_char =
       (unsigned char *)malloc(8); /* provide a buffer for multi-byte chars */
   d_word = (unsigned char *)malloc(MAX_WORD_LEN);
@@ -111,7 +166,7 @@ int main(int argc, char *argv[]) {
   dlt_line->line_length = 0;
   curr_line = first_line = txtalloc();
   curr_line->line = point = (unsigned char *)malloc(MIN_LINE_ALLOC);
-  *point = '\n';  // Add newline to force initial render
+  *point = '\n'; // Add newline to force initial render
   curr_line->line_length = 1;
   curr_line->max_length = MIN_LINE_ALLOC;
   curr_line->prev_line = nullptr;
@@ -191,9 +246,28 @@ int main(int argc, char *argv[]) {
         if (strcmp(buf, ".") == 0) {
           ed_insert_mode = 0;
         } else {
-          for (int i = 0; buf[i]; i++)
-            insert(buf[i]);
-          insert('\n');
+          /* feed bytes through the same decoder+dispatcher as curses */
+          const unsigned char *p = (const unsigned char *)buf;
+          while (*p) {
+            int cp;
+            size_t adv = 1;
+            if ((*p & 0xE0) == 0xC0 && p[1]) {
+              cp = ((*p & 0x1F) << 6) | (p[1] & 0x3F);
+              adv = 2;
+            } else if ((*p & 0xF0) == 0xE0 && p[1] && p[2]) {
+              cp = ((*p & 0x0F) << 12) | ((p[1] & 0x3F) << 6) | (p[2] & 0x3F);
+              adv = 3;
+            } else if ((*p & 0xF8) == 0xF0 && p[1] && p[2] && p[3]) {
+              cp = ((*p & 0x07) << 18) | ((p[1] & 0x3F) << 12) |
+                   ((p[2] & 0x3F) << 6) | (p[3] & 0x3F);
+              adv = 4;
+            } else {
+              cp = *p;
+            }
+            process_key(cp);
+            p += adv;
+          }
+          process_key('\n');
         }
       } else {
         if (strcmp(buf, "q") == 0 || strcmp(buf, "quit") == 0 ||
@@ -211,6 +285,59 @@ int main(int argc, char *argv[]) {
             write_file(in_file_name, false);
         } else if (buf[0] == 'w' && buf[1] == ' ') {
           write_file(buf + 2, false);
+        } else if (strcmp(buf, "{") == 0) {
+          up();
+        } else if (strcmp(buf, "}") == 0) {
+          down();
+        } else if (strcmp(buf, "<") == 0) {
+          if (position > 1) {
+            point--;
+            position--;
+            scr_pos = scr_horz = max(0, scr_horz - 1);
+          }
+        } else if (strcmp(buf, ">") == 0) {
+          if (point < curr_line->line + curr_line->line_length - 1) {
+            point++;
+            position++;
+            scr_pos = scr_horz = min(last_col, scr_horz + 1);
+          }
+        } else if (strcmp(buf, "#") == 0) {
+          /* verify the every-line-ends-with-newline invariant */
+          struct text *t = first_line;
+          int bad = 0;
+          while (t != nullptr) {
+            /* lines are NUL-terminated; last byte must be '\0'.
+               length-1 nodes are 'empty' lines from insert_line whose
+               terminator is written lazily by later edits */
+            if (t->line_length > 1 && t->line[t->line_length - 1] != '\0')
+              bad++;
+            t = t->next_line;
+          }
+          t = first_line;
+          int n = 0;
+          fprintf(stderr, "# --- buffer dump ---\n");
+          while (t != nullptr) {
+            n++;
+            if (t->line_length > 1 && t->line[t->line_length - 1] != '\n')
+              fprintf(stderr, "#  bad line %d: len=%d last=0x%02x\n", n,
+                      t->line_length, t->line[t->line_length - 1]);
+            fprintf(stderr, "# %2d: len=%d [%.*s]\n", n, t->line_length,
+                    t->line_length > 0 ? t->line_length - 1 : 0, t->line);
+            t = t->next_line;
+          }
+          fprintf(stderr, "#invariant %s (%d bad lines)\n", bad ? "FAIL" : "OK",
+                  bad);
+          FILE *dump = fopen("/tmp/opencode/ee_dump.txt", "w");
+          if (dump) {
+            struct text *d = first_line;
+            while (d != nullptr) {
+              fwrite(d->line, 1, d->line_length > 0 ? d->line_length - 1 : 0,
+                     dump);
+              fputc('\n', dump);
+              d = d->next_line;
+            }
+            fclose(dump);
+          }
         } else if (buf[0] == ':') {
           command(buf + 1);
         } else {
@@ -225,6 +352,10 @@ int main(int argc, char *argv[]) {
   }
 
   last_redraw_time = time(nullptr);
+
+  draw_screen();
+
+  bool was_pasting = false;
   while (edit) {
 #ifdef HAS_LSP
     lsp_poll();
@@ -232,6 +363,17 @@ int main(int argc, char *argv[]) {
     /*
      |  display line and column information
      */
+    if (was_pasting && !pasting_mode) {
+      /* a paste burst just ended: incremental echoes can leave stale
+         cells behind -- repaint the text window cleanly once */
+      was_pasting = false;
+      if (!profiling_mode) {
+        clearok(text_win, TRUE);
+        draw_screen();
+        doupdate();
+      }
+    }
+
     if (info_window && !pasting_mode) {
 #ifdef HAS_INFO_WIN
       paint_info_win();
@@ -266,6 +408,7 @@ int main(int argc, char *argv[]) {
     wint_t next_wch;
     if (wget_wch(text_win, &next_wch) != ERR) {
       pasting_mode = true;
+      was_pasting = true;
       unget_wch(next_wch);
     } else {
       pasting_mode = false;
@@ -287,6 +430,13 @@ int main(int argc, char *argv[]) {
       continue;
     }
 #endif
+    {
+      FILE *dbgf = fopen("/tmp/opencode/keylog.txt", "a");
+      if (dbgf) {
+        fprintf(dbgf, "in=%d\n", in);
+        fclose(dbgf);
+      }
+    }
     last_redraw_time = time(nullptr);
 
     resize_check();
@@ -321,35 +471,7 @@ int main(int argc, char *argv[]) {
       }
     }
 
-    if (in > 255) {
-      if (in < 512) {
-        function_key();
-      } else {
-        // Handle Meta/Extended keys via control tables
-        if (emacs_keys_mode) {
-          if (emacs_control_table[in % 1024] != no_op)
-            emacs_control_table[in % 1024]();
-        } else {
-          if (base_control_table[in % 1024] != no_op)
-            base_control_table[in % 1024]();
-        }
-      }
-    } else if ((in == '\10') || (in == ASCII_DEL)) {
-      in = ASCII_BACKSPACE; /* make sure key is set to backspace */
-      delete_char_at_cursor(1);
-    } else if ((in > 31) || (in == 9)) {
-      if (vi_keys_mode && !vi_insert_mode) {
-        vi_command(in);
-      } else {
-        insert(in);
-      }
-    } else if ((in >= 0) && (in <= 31)) {
-      if (emacs_keys_mode) {
-        emacs_control();
-      } else {
-        control();
-      }
-    }
+    process_key(in);
 
     if (text_changes) {
 #ifdef HAS_TREESITTER
