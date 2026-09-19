@@ -55,10 +55,13 @@
  |
  */
 
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 #ifndef _XOPEN_SOURCE
 #define _XOPEN_SOURCE 700
 #endif
+
 
 #include "ee.h"
 #include "delete.h"
@@ -2371,17 +2374,12 @@ char *format_shortcut(const char *cmd_name, control_handler *table) {
   static char buf[16][64];
   static int idx = 0;
   char *current_buf = buf[idx++ % 16];
-  control_handler h = nullptr;
-  const char *short_desc = "";
-  for (int i = 0; commands_table[i].name != nullptr; i++) {
-    if (strcmp(commands_table[i].name, cmd_name) == 0) {
-      h = commands_table[i].handler;
-      short_desc = commands_table[i].short_desc;
-      break;
-    }
-  }
-  if (h == nullptr)
+  const struct command_map *cmd = find_command(cmd_name);
+  if (cmd == nullptr || cmd->handler == nullptr)
     return (char *)"";
+  control_handler h = cmd->handler;
+  const char *short_desc = cmd->short_desc;
+
   const char *key = get_key_binding(h, table);
   if (key[0] == '\0')
     return (char *)"";

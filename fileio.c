@@ -1,5 +1,5 @@
-#define _GNU_SOURCE
 #include "fileio.h"
+#include "delete.h"
 #include <pwd.h>
 #ifdef HAS_TREESITTER
 #include <tree_sitter/api.h>
@@ -176,9 +176,14 @@ void get_file(const char *file_name) {
     if (curr_line->line != nullptr) {
       free(curr_line->line);
     }
+    if (mark_line == curr_line) {
+      mark_line = nullptr;
+      mark_position = 0;
+    }
     free(curr_line);
     curr_line = temp_line;
   }
+
   if (input_file) /* if this is the file to be edited display number of lines
                    */
   {
@@ -234,25 +239,24 @@ void finish() {
   }
 }
 int write_file(const char *file_name, bool warn_if_exists) {
-  char cr;
-  char *tmp_point;
   struct text *out_line;
   int lines;
   int charac;
-  int temp_pos;
   int write_flag = 1;
 
   charac = lines = 0;
+
   if (warn_if_exists && ((in_file_name == nullptr) ||
                          (strcmp((char *)in_file_name, file_name) != 0))) {
     if ((temp_fp = fopen(file_name, "r")) != nullptr) {
-      tmp_point = get_string(file_exists_prompt, 1);
+      char *tmp_point = get_string(file_exists_prompt, 1);
       write_flag = (int)(toupper((unsigned char)*tmp_point) ==
                          toupper((unsigned char)*yes_char));
       fclose(temp_fp);
       free(tmp_point);
     }
   }
+
 
   clear_com_win = true;
 
@@ -270,19 +274,14 @@ int write_file(const char *file_name, bool warn_if_exists) {
     ee_wclrtoeol(com_win);
     ee_wprintw(com_win, writing_file_msg, file_name);
     ee_wrefresh(com_win);
-    cr = '\n';
     out_line = first_line;
     while (out_line != nullptr) {
-      temp_pos = 1;
-      tmp_point = (char *)out_line->line;
-      while (temp_pos < out_line->line_length) {
-        putc(*tmp_point, temp_fp);
-        tmp_point++;
-        temp_pos++;
-      }
+      int line_data_len = out_line->line_length - 1;
+      if (line_data_len > 0)
+        fwrite(out_line->line, 1, line_data_len, temp_fp);
+      fputc('\n', temp_fp);
       charac += out_line->line_length;
       out_line = out_line->next_line;
-      putc(cr, temp_fp);
       lines++;
     }
     fclose(temp_fp);

@@ -96,32 +96,42 @@ static void ee_dump_buffer(int sig) {
  * profiling loop so tests exercise the same input pipeline */
 void process_key(int k) {
   in = k;
-  /* handlers read the global (control(), gold logic, ...) */ /* handlers
-                                                                 read the
-                                                                 global
-                                                                 (control(),
-                                                                 gold logic,
-                                                                 ...) */
   if (k > 255 && k <= 511) {
     /* curses KEY_* codes top out at 511; larger values are real text */
     function_key();
-  } else if ((k == '\10') || (k == ASCII_DEL)) {
-    in = ASCII_BACKSPACE; /* make sure key is set to backspace */
+    return;
+  }
+  if ((k == '\10') || (k == ASCII_DEL)) {
+    in = ASCII_BACKSPACE;
     delete_char_at_cursor(1);
-  } else if ((k > 31) || (k == 9)) {
-    if (vi_keys_mode && !vi_insert_mode) {
-      vi_command(k);
-    } else {
-      insert(k);
+    return;
+  }
+  if (k >= 512 && k < 1024) {
+    control_handler const *tbl = emacs_keys_mode ? emacs_control_table
+                               : (gold ? gold_control_table : base_control_table);
+    if (tbl[k] != nullptr) {
+      if (emacs_keys_mode)
+        emacs_control();
+      else
+        control();
+      return;
     }
-  } else if ((k >= 0) && (k <= 31)) {
+  }
+  if ((k >= 0) && (k <= 31) && (k != 9)) {
     if (emacs_keys_mode) {
       emacs_control();
     } else {
       control();
     }
+    return;
+  }
+  if (vi_keys_mode && !vi_insert_mode) {
+    vi_command(k);
+  } else {
+    insert(k);
   }
 }
+
 
 int main(int argc, char *argv[]) {
   int counter;

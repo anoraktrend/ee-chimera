@@ -351,10 +351,84 @@ void paint_menu(struct menu_entries menu_list[], int max_width, int max_height,
     }
   }
 }
+typedef void (*mode_handler_fn)(void);
+
+static void mode_toggle_tabs(void) { expand_tabs = !expand_tabs; }
+static void mode_toggle_case(void) { case_sen = !case_sen; }
+static void mode_toggle_margins(void) { observ_margins = !observ_margins; }
+static void mode_toggle_autoformat(void) {
+  auto_format = !auto_format;
+  if (auto_format)
+    observ_margins = true;
+}
+static void mode_toggle_eightbit(void) {
+  eightbit = !eightbit;
+  if (!eightbit)
+    ee_chinese = false;
+#ifdef NCURSE
+  if (ee_chinese)
+    nc_setattrib(A_NC_BIG5);
+  else
+    nc_clearattrib(A_NC_BIG5);
+#endif
+  redraw();
+  wnoutrefresh(text_win);
+}
+static void mode_toggle_info_win(void) {
+  info_window = !info_window;
+  resize_info_win();
+}
+static void mode_toggle_emacs(void) {
+  emacs_keys_mode = !emacs_keys_mode;
+  if (emacs_keys_mode)
+    vi_keys_mode = false;
+  update_libedit_mode();
+  resize_info_win();
+}
+static void mode_toggle_vi(void) {
+  vi_keys_mode = !vi_keys_mode;
+  if (vi_keys_mode)
+    emacs_keys_mode = false;
+  update_libedit_mode();
+  resize_info_win();
+}
+static void mode_set_margin(void) {
+  char *string = get_string(margin_prompt, 1);
+  if (string != nullptr) {
+    int counter = atoi(string);
+    if (counter > 0)
+      right_margin = counter;
+    free(string);
+  }
+}
+static void mode_toggle_chinese(void) {
+  ee_chinese = !ee_chinese;
+  if (ee_chinese)
+    eightbit = true;
+#ifdef NCURSE
+  if (ee_chinese)
+    nc_setattrib(A_NC_BIG5);
+  else
+    nc_clearattrib(A_NC_BIG5);
+#endif
+  redraw();
+}
+
+static const mode_handler_fn mode_handlers[12] = {
+    [1] = mode_toggle_tabs,
+    [2] = mode_toggle_case,
+    [3] = mode_toggle_margins,
+    [4] = mode_toggle_autoformat,
+    [5] = mode_toggle_eightbit,
+    [6] = mode_toggle_info_win,
+    [7] = mode_toggle_emacs,
+    [8] = mode_toggle_vi,
+    [9] = mode_set_margin,
+    [10] = mode_toggle_chinese,
+};
+
 void modes_op() {
   int ret_value;
-  int counter;
-  char *string;
 
   do {
     // item_string sizes are 128 bytes allocated in menu init
@@ -381,83 +455,9 @@ void modes_op() {
 
     ret_value = menu_op(modes_menu);
 
-    switch (ret_value) {
-    case 1:
-      expand_tabs = !expand_tabs;
-      break;
-    case 2:
-      case_sen = !case_sen;
-      break;
-    case 3:
-      observ_margins = !observ_margins;
-      break;
-    case 4:
-      auto_format = !auto_format;
-      if (auto_format) {
-        observ_margins = true;
-      }
-      break;
-    case 5:
-      eightbit = !eightbit;
-      if (!eightbit) {
-        ee_chinese = false;
-      }
-#ifdef NCURSE
-      if (ee_chinese)
-        nc_setattrib(A_NC_BIG5);
-      else
-        nc_clearattrib(A_NC_BIG5);
-#endif /* NCURSE */
-
-      redraw();
-      wnoutrefresh(text_win);
-      break;
-    case 6:
-      info_window = !info_window;
-      resize_info_win();
-      break;
-    case 7:
-      emacs_keys_mode = !emacs_keys_mode;
-      if (emacs_keys_mode)
-        vi_keys_mode = false;
-      update_libedit_mode();
-      resize_info_win();
-      break;
-    case 8:
-      vi_keys_mode = !vi_keys_mode;
-      if (vi_keys_mode)
-        emacs_keys_mode = false;
-      update_libedit_mode();
-      resize_info_win();
-      break;
-    case 9:
-      string = get_string(margin_prompt, 1);
-      if (string != nullptr) {
-        counter = atoi(string);
-        if (counter > 0) {
-          right_margin = counter;
-        }
-        free(string);
-      }
-      break;
-    case 10:
-      ee_chinese = !ee_chinese;
-      if (ee_chinese) {
-        eightbit = true;
-      }
-#ifdef NCURSE
-      if (ee_chinese)
-        nc_setattrib(A_NC_BIG5);
-      else
-        nc_clearattrib(A_NC_BIG5);
-#endif /* NCURSE */
-      redraw();
-      break;
-    case 11:
-      // Handled by menu struct call to dump_ee_conf
-      break;
-    default:
-      break;
+    if (ret_value >= 1 && ret_value < 12 && mode_handlers[ret_value] != nullptr) {
+      mode_handlers[ret_value]();
     }
   } while (ret_value != 0);
 }
+

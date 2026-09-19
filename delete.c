@@ -53,13 +53,18 @@ static void goto_region_end(struct text *end_line, int end_pos) {
   }
 }
 
-/* backspace-delete del_len characters at the cursor */
+/* backspace-delete del_len characters ending at the current cursor */
 static void delete_region_chars(int del_len) {
-  in = 8; /* ASCII backspace */
+  /* The cursor is already at the end of the region (goto_region_end was
+   * called by the caller).  Walk backwards del_len positions and memmove
+   * the tail forward.  We operate line-by-line to keep draw_line correct;
+   * for the common single-line case this is one memmove. */
   for (int i = 0; i < del_len; i++) {
+    in = 8; /* ASCII backspace */
     delete_char_at_cursor(1);
   }
 }
+
 
 void update_line_numbers(struct text *line, int delta) {
   struct text *curr = line;
@@ -128,6 +133,10 @@ void delete_char_at_cursor(int disp) {
     text_changes = true;
     left(disp); /* go to previous line	*/
     temp_buff = curr_line->next_line;
+    if (mark_line == temp_buff) {
+      mark_line = nullptr;
+      mark_position = 0;
+    }
     point = resiz_line(temp_buff->line_length, curr_line, position);
     if (temp_buff->next_line != nullptr) {
       temp_buff->next_line->prev_line = curr_line;
@@ -177,6 +186,8 @@ static void free_text_lines(struct text *line) {
   }
 }
 void delete_text() {
+  mark_line = nullptr;
+  mark_position = 0;
   free_text_lines(first_line->next_line);
   first_line->next_line = nullptr;
   *first_line->line = '\0';
@@ -187,6 +198,7 @@ void delete_text() {
   scr_pos = scr_vert = scr_horz = 0;
   position = 1;
 }
+
 void set_mark() {
   if (mark_line != nullptr) {
     mark_line = nullptr;
@@ -215,29 +227,9 @@ void copy_region(bool cut) {
     clear_com_win = true;
     return;
   }
-  /* Verify the mark is still valid (hasn't been deleted) */
-  bool valid = false;
-  struct text *chk = first_line;
-  while (chk) {
-    if (chk == mark_line) {
-      valid = true;
-      break;
-    }
-    chk = chk->next_line;
-  }
-  if (!valid) {
-    mark_line = nullptr;
-    if (info_window)
-      paint_info_win();
-    ee_wmove(com_win, 0, 0);
-    ee_wclrtoeol(com_win);
-    ee_wprintw(com_win, "Mark invalid (line deleted).");
-    ee_wrefresh(com_win);
-    clear_com_win = true;
-    return;
-  }
   struct text *start_line = mark_line;
   int start_pos = mark_position;
+
   struct text *end_line = curr_line;
   int end_pos = position;
   /* Ensure start comes before end */
@@ -327,19 +319,6 @@ void append_region(bool cut) {
     return;
   }
 
-  /* Branchless validation and swap logic */
-  bool valid = false;
-  struct text *chk = first_line;
-  while (chk) {
-    valid |= (chk == mark_line);
-    chk = chk->next_line;
-  }
-  if (info_window)
-    paint_info_win();
-  mark_line = valid ? mark_line : nullptr;
-  if (!valid)
-    return;
-
   bool swap = (mark_line->line_number > curr_line->line_number) ||
               ((mark_line->line_number == curr_line->line_number) &&
                (mark_position > position));
@@ -348,6 +327,7 @@ void append_region(bool cut) {
   int start_pos = swap ? position : mark_position;
   struct text *end_line = swap ? mark_line : curr_line;
   int end_pos = swap ? mark_position : position;
+
 
   /* Calculate new region size */
   int est_size = region_size(start_line, end_line);
@@ -426,47 +406,48 @@ void undel_char() {
   }
 }
 void del_word() {
-  int tposit;
-  int difference;
-  unsigned char *d_word2;
-  unsigned char *d_word3;
   unsigned char tmp_char[3];
 
   if (d_word != nullptr) {
     free(d_word);
   }
   d_word = malloc(curr_line->line_length);
+
+  /* Save d_char before we clobber it via delete mechanics. */
   tmp_char[0] = d_char[0];
   tmp_char[1] = d_char[1];
   tmp_char[2] = d_char[2];
-  d_word3 = point;
-  d_word2 = d_word;
-  tposit = position;
-  while ((tposit < curr_line->line_length) &&
-         ((*d_word3 != ' ') && (*d_word3 != '\t'))) {
-    tposit++;
-    *d_word2 = *d_word3;
-    d_word2++;
-    d_word3++;
+
+  /* Find end of the non-space run starting at point. */
+  int remaining = curr_line->line_length - position;
+  unsigned char *end = point;
+  if (remaining > 0) {
+    size_t word_span = strcspn((char *)end, " \t");
+    if ((int)word_span > remaining) word_span = (size_t)remaining;
+    end += word_span;
+    remaining -= (int)word_span;
   }
-  while ((tposit < curr_line->line_length) &&
-         ((*d_word3 == ' ') || (*d_word3 == '\t'))) {
-    tposit++;
-    *d_word2 = *d_word3;
-    d_word2++;
-    d_word3++;
+  /* span of trailing whitespace */
+  if (remaining > 0) {
+    size_t ws_span = strspn((char *)end, " \t");
+    if ((int)ws_span > remaining) ws_span = (size_t)remaining;
+    end += ws_span;
   }
-  *d_word2 = '\0';
-  d_wrd_len = difference = d_word2 - d_word;
-  d_word2 = point;
-  while (tposit < curr_line->line_length) {
-    tposit++;
-    *d_word2 = *d_word3;
-    d_word2++;
-    d_word3++;
-  }
+
+  int difference = (int)(end - point);
+
+  /* Save deleted bytes into d_word. */
+  memcpy(d_word, point, difference);
+  d_word[difference] = '\0';
+  d_wrd_len = difference;
+
+  /* Slide the tail left over the deleted span (includes the '\0'). */
+  int tail_len = curr_line->line_length - position - difference + 1;
+  if (tail_len > 0)
+    memmove(point, end, tail_len);
+
   curr_line->line_length -= difference;
-  *d_word2 = '\0';
+
   draw_line(scr_vert, scr_horz, curr_line, position);
   d_char[0] = tmp_char[0];
   d_char[1] = tmp_char[1];
@@ -479,16 +460,10 @@ void del_word() {
                 d_wrd_len, d_word);
   }
 }
-void undel_word() {
-  int temp;
-  int tposit;
-  unsigned char *tmp_old_ptr;
-  unsigned char *tmp_space;
-  unsigned char *tmp_ptr;
-  unsigned char *d_word_ptr;
 
+void undel_word() {
   /*
-   |	resize line to handle undeleted word
+   |  resize line to handle undeleted word
    */
   if ((curr_line->max_length - (curr_line->line_length + d_wrd_len)) < 5) {
     point = resiz_line(d_wrd_len, curr_line, position);
@@ -496,49 +471,36 @@ void undel_word() {
   int tmp_size;
   if (ckd_add(&tmp_size, curr_line->line_length, d_wrd_len))
     return;
-  tmp_ptr = tmp_space = malloc(tmp_size);
-  d_word_ptr = d_word;
-  temp = 1;
+
   /*
-   |	copy d_word contents into temp space
+   |  Build the new line contents in a scratch buffer:
+   |    [line[0..position-1]] [d_word[0..d_wrd_len-1]] [line[position..end]]
+   |  then copy it back over the original.  Uses three memcpy calls instead
+   |  of three manual byte loops.
    */
-  while (temp <= d_wrd_len) {
-    temp++;
-    *tmp_ptr = *d_word_ptr;
-    tmp_ptr++;
-    d_word_ptr++;
-  }
-  tmp_old_ptr = point;
-  tposit = position;
-  /*
-   |	copy contents of line from curent position to eol into
-   |	temp space
-   */
-  while (tposit < curr_line->line_length) {
-    temp++;
-    tposit++;
-    *tmp_ptr = *tmp_old_ptr;
-    tmp_ptr++;
-    tmp_old_ptr++;
-  }
-  curr_line->line_length += d_wrd_len;
-  tmp_old_ptr = point;
-  *tmp_ptr = '\0';
-  tmp_ptr = tmp_space;
-  tposit = 1;
-  /*
-   |	now copy contents from temp space back to original line
-   */
-  while (tposit < temp) {
-    tposit++;
-    *tmp_old_ptr = *tmp_ptr;
-    tmp_ptr++;
-    tmp_old_ptr++;
-  }
-  *tmp_old_ptr = '\0';
+  unsigned char *tmp_space = malloc(tmp_size + 1);
+  if (!tmp_space)
+    return;
+
+  int tail_len = curr_line->line_length - position;
+
+  /* prefix: bytes before cursor */
+  memcpy(tmp_space, curr_line->line, position - 1);
+  /* the restored word */
+  memcpy(tmp_space + position - 1, d_word, d_wrd_len);
+  /* tail: bytes from cursor to end (including '\0') */
+  if (tail_len > 0)
+    memcpy(tmp_space + position - 1 + d_wrd_len, point, tail_len);
+  tmp_space[position - 1 + d_wrd_len + tail_len] = '\0';
+
+  int new_len = curr_line->line_length + d_wrd_len;
+  memcpy(curr_line->line, tmp_space, new_len + 1);
+  curr_line->line_length = new_len;
+
   free(tmp_space);
   draw_line(scr_vert, scr_horz, curr_line, position);
 }
+
 void del_line() {
   if (d_line != nullptr) {
     free(d_line);
@@ -563,10 +525,6 @@ void del_line() {
   }
 }
 void undel_line() {
-  unsigned char *ud1;
-  unsigned char *ud2;
-  int tposit;
-
   if (dlt_line->line_length == 0) {
     return;
   }
@@ -574,16 +532,10 @@ void undel_line() {
   insert_line(1);
   left(1);
   point = resiz_line(dlt_line->line_length, curr_line, position);
-  curr_line->line_length += dlt_line->line_length - 1;
-  ud1 = point;
-  ud2 = d_line;
-  tposit = 1;
-  while (tposit < dlt_line->line_length) {
-    tposit++;
-    *ud1 = *ud2;
-    ud1++;
-    ud2++;
-  }
-  *ud1 = '\0';
+  size_t copy_len = dlt_line->line_length - 1;
+  memcpy(point, d_line, copy_len);
+  point[copy_len] = '\0';
+  curr_line->line_length += (int)copy_len;
   draw_line(scr_vert, scr_horz, curr_line, position);
 }
+

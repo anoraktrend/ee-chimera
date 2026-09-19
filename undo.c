@@ -285,25 +285,29 @@ static void undo_apply_splice(undo_entry *entry) {
   if (!new_line)
     return;
 
-  size_t dest_pos = 0;
-  for (size_t i = 0; i < (size_t)entry->column && dest_pos < (size_t)new_len;
-       i++) {
-    new_line[dest_pos++] = line->line[i];
-  }
-  for (size_t i = 0; i < (size_t)entry->length && dest_pos < (size_t)new_len;
-       i++) {
-    new_line[dest_pos++] = entry->data[i];
-  }
-  for (size_t i = entry->column;
-       i < (size_t)line->line_length && dest_pos < (size_t)new_len; i++) {
-    new_line[dest_pos++] = line->line[i];
-  }
-  new_line[dest_pos] = '\0';
+  size_t col = (size_t)entry->column;
+  size_t data_len = (size_t)entry->length;
+  size_t suffix_start = col;
+  size_t suffix_len = (size_t)line->line_length > suffix_start
+                          ? (size_t)line->line_length - suffix_start
+                          : 0;
+
+  /* prefix: line[0..col-1] */
+  if (col > 0)
+    memcpy(new_line, line->line, col);
+  /* inserted data */
+  if (data_len > 0)
+    memcpy(new_line + col, entry->data, data_len);
+  /* suffix: line[col..end] */
+  if (suffix_len > 0)
+    memcpy(new_line + col + data_len, line->line + suffix_start, suffix_len);
+  new_line[col + data_len + suffix_len] = '\0';
 
   free(line->line);
   line->line = new_line;
-  line->line_length = (int)dest_pos;
+  line->line_length = (int)(col + data_len + suffix_len);
 }
+
 
 /* shared by UNDO_DELETE and UNDO_CUT: excise entry->length bytes at column */
 static void undo_apply_remove(undo_entry *entry) {
@@ -322,21 +326,25 @@ static void undo_apply_remove(undo_entry *entry) {
   if (!new_line)
     return;
 
-  size_t dest_pos = 0;
-  for (size_t i = 0; i < (size_t)entry->column && dest_pos < (size_t)new_length;
-       i++) {
-    new_line[dest_pos++] = line->line[i];
-  }
-  for (size_t i = entry->column + entry->length;
-       i < (size_t)line->line_length && dest_pos < (size_t)new_length; i++) {
-    new_line[dest_pos++] = line->line[i];
-  }
-  new_line[dest_pos] = '\0';
+  size_t col = (size_t)entry->column;
+  size_t skip_end = col + (size_t)entry->length;
+  size_t suffix_len = (size_t)line->line_length > skip_end
+                          ? (size_t)line->line_length - skip_end
+                          : 0;
+
+  /* prefix: line[0..col-1] */
+  if (col > 0)
+    memcpy(new_line, line->line, col);
+  /* suffix: line[col+length..end] */
+  if (suffix_len > 0)
+    memcpy(new_line + col, line->line + skip_end, suffix_len);
+  new_line[col + suffix_len] = '\0';
 
   free(line->line);
   line->line = new_line;
-  line->line_length = (int)dest_pos;
+  line->line_length = (int)(col + suffix_len);
 }
+
 
 static void undo_perform_move(undo_entry *entry) {
   if (!entry || !entry->line_after)

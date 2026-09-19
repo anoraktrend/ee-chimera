@@ -147,10 +147,9 @@ void scanline(const unsigned char *pos) {
   int below_offset = scr_horz < horiz_offset;
 
   if (beyond_last || below_offset) {
-    int new_off_high = (scr_horz - (scr_horz % 8)) - (COLS - 8);
-    int new_off_low = scr_horz - (scr_horz % 8);
-    if (new_off_low < 0)
-      new_off_low = 0;
+    int base_off = scr_horz & ~7;
+    int new_off_high = base_off - (COLS - 8);
+    int new_off_low = max(0, base_off);
 
     horiz_offset = (beyond_last ? new_off_high : new_off_low);
 
@@ -160,6 +159,7 @@ void scanline(const unsigned char *pos) {
     draw_screen();
   }
 }
+
 
 #ifdef HAS_TREESITTER
 [[maybe_unused]] static int get_node_attribute(int line, int col) {
@@ -279,31 +279,35 @@ void draw_line(int vertical, int horiz, struct text *restrict line, int t_pos) {
         temp += i;
       }
     } else {
-      // Branchless: Use char_len_table to avoid branching
       int char_len = len_char(*temp, abs_column);
-      column += char_len;
-      abs_column += char_len;
       if (char_len == 1) {
         ee_waddch(text_win, *temp);
+        column += 1;
+        abs_column += 1;
       } else {
-        abs_column += out_char(text_win, *temp, abs_column);
+        int adv = out_char(text_win, *temp, abs_column);
+        column += adv;
+        abs_column += adv;
       }
       posit++;
       temp++;
     }
 #else
-    // Branchless: Use char_len_table to avoid branching
-    int char_len = len_char(*temp, abs_column);
-    column += char_len;
-    abs_column += char_len;
-    if (char_len == 1) {
-      ee_waddch(text_win, *temp);
-    } else {
-      abs_column += out_char(text_win, *temp, abs_column);
+      int char_len = len_char(*temp, abs_column);
+      if (char_len == 1) {
+        ee_waddch(text_win, *temp);
+        column += 1;
+        abs_column += 1;
+      } else {
+        int adv = out_char(text_win, *temp, abs_column);
+        column += adv;
+        abs_column += adv;
+      }
+      posit++;
+      temp++;
     }
-    posit++;
-    temp++;
 #endif
+
     if (text_win != nullptr)
       wattroff(text_win, attr);
   }

@@ -15,6 +15,7 @@ void adv_word(void);
 void vi_command(int c);
 void function_key(void);
 void bind_key(const char *key_str, const char *cmd_name, int table_type);
+const struct command_map *find_command(const char *name);
 void gold_toggle(void);
 void no_op(void);
 

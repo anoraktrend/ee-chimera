@@ -113,40 +113,63 @@ struct command_map commands_table[] = {
     {"redo", control_redo, "redo last change", "redo"},
     {nullptr, nullptr, nullptr, nullptr}};
 
+static const struct command_map *cmd_hash_table[64];
+static bool cmd_hash_inited = false;
+
+static unsigned int cmd_hash(const char *s) {
+  unsigned int h = 5381;
+  while (*s)
+    h = ((h << 5) + h) + (unsigned char)*s++;
+  return h;
+}
+
+static void init_cmd_hash(void) {
+  if (cmd_hash_inited)
+    return;
+  for (int i = 0; commands_table[i].name != nullptr; i++) {
+    unsigned int idx = cmd_hash(commands_table[i].name) & 63;
+    while (cmd_hash_table[idx] != nullptr)
+      idx = (idx + 1) & 63;
+    cmd_hash_table[idx] = &commands_table[i];
+  }
+  cmd_hash_inited = true;
+}
+
+const struct command_map *find_command(const char *name) {
+  if (!name)
+    return nullptr;
+  init_cmd_hash();
+  unsigned int idx = cmd_hash(name) & 63;
+  while (cmd_hash_table[idx] != nullptr) {
+    if (strcmp(cmd_hash_table[idx]->name, name) == 0)
+      return cmd_hash_table[idx];
+    idx = (idx + 1) & 63;
+  }
+  return nullptr;
+}
+
 void bind_key(const char *key_str, const char *cmd_name, int table_type) {
   int key_idx = -1;
   if (key_str[0] == '^' && key_str[1] != '\0') {
-    if (key_str[1] >= 'A' && key_str[1] <= 'Z') {
-      key_idx = key_str[1] - 'A' + 1;
-    } else if (key_str[1] >= 'a' && key_str[1] <= 'z') {
-      key_idx = key_str[1] - 'a' + 1;
-    } else if (key_str[1] == '[') {
-      key_idx = 27;
-    } else if (key_str[1] == '\\') {
-      key_idx = 28;
-    } else if (key_str[1] == ']') {
-      key_idx = 29;
-    } else if (key_str[1] == '^') {
-      key_idx = 30;
-    } else if (key_str[1] == '_') {
-      key_idx = 31;
-    } else if (key_str[1] == '@') {
-      key_idx = 0;
+    unsigned char uc = toupper((unsigned char)key_str[1]);
+    if (uc >= '@' && uc <= '_') {
+      key_idx = uc - '@';
     }
   } else if (strlen(key_str) >= 3 && key_str[1] == '-') {
     char mod = toupper((unsigned char)key_str[0]);
     int base_key = (unsigned char)key_str[2];
-    if (mod == 'M') { // Meta / Alt - map to 512 + base
-      key_idx = 512 + base_key;
-    } else if (mod == 'W') { // Windows / Super - map to 768 + base
-      key_idx = 768 + base_key;
-    } else if (mod == 'C') { // Ctrl
-      if (base_key >= '@' && base_key <= '_')
-        key_idx = base_key - '@';
-      else if (base_key >= 'a' && base_key <= 'z')
-        key_idx = base_key - 'a' + 1;
-    } else if (mod == 'S') { // Shift
-      key_idx = base_key;    // Standard key, but we can differentiate if needed
+    static const int mod_offsets[256] = {
+        ['M'] = 512,
+        ['W'] = 768,
+    };
+    if (mod == 'M' || mod == 'W') {
+      key_idx = mod_offsets[(unsigned char)mod] + base_key;
+    } else if (mod == 'C') {
+      unsigned char uc = toupper((unsigned char)base_key);
+      if (uc >= '@' && uc <= '_')
+        key_idx = uc - '@';
+    } else if (mod == 'S') {
+      key_idx = base_key;
     }
   } else if (strncmp(key_str, "code:", 5) == 0) {
     key_idx = atoi(key_str + 5);
@@ -155,25 +178,22 @@ void bind_key(const char *key_str, const char *cmd_name, int table_type) {
   if (key_idx < 0 || key_idx >= 1024)
     return;
 
-  control_handler handler = no_op;
-  for (int i = 0; commands_table[i].name != nullptr; i++) {
-    if (strcmp(commands_table[i].name, cmd_name) == 0) {
-      handler = (control_handler)commands_table[i].handler;
-      break;
-    }
-  }
+  const struct command_map *cmd = find_command(cmd_name);
+  control_handler handler = cmd ? (control_handler)cmd->handler : no_op;
 
-  control_handler *target_table;
-  if (table_type == GOLD_TABLE) {
-    target_table = gold_control_table;
-  } else if (table_type == EMACS_TABLE) {
-    target_table = emacs_control_table;
-  } else {
-    target_table = base_control_table;
-  }
+  static control_handler *const table_ptrs[] = {
+      [BASE_TABLE] = base_control_table,
+      [GOLD_TABLE] = gold_control_table,
+      [EMACS_TABLE] = emacs_control_table,
+  };
+
+  control_handler *target_table =
+      (table_type >= 0 && table_type < 3) ? table_ptrs[table_type]
+                                          : base_control_table;
 
   target_table[key_idx] = handler;
 }
+
 
 static void control_gold_esc(void) {
 #ifdef HAS_MENU
@@ -254,7 +274,7 @@ void control() {
   bool was_gold = gold;
   control_handler const *table_ptr =
       gold ? gold_control_table : base_control_table;
-  int index = in & 0x1F; // Branchless: in % 32
+  int index = (in >= 512 && in < 1024) ? in : (in & 0x1F);
   control_handler handler = table_ptr[index];
   handler = handler ? handler : no_op;
 
@@ -267,11 +287,12 @@ void control() {
 
 /* Emacs control-key bindings (branchless dispatch) */
 void emacs_control() {
-  int index = in & 0x1F; // Branchless: in % 32
+  int index = (in >= 512 && in < 1024) ? in : (in & 0x1F);
   control_handler handler = emacs_control_table[index];
   handler = handler ? handler : no_op;
   handler();
 }
+
 
 /* move to start of previous word in text */
 static unsigned char *skip_chars_back(unsigned char *start, unsigned char *ptr,
@@ -386,122 +407,76 @@ void vi_command(int c) {
   }
 }
 
-/* handle function keys */
+static void fn_npage(void) { move_rel('d', max(5, (last_line - 5))); }
+static void fn_ppage(void) { move_rel('u', max(5, (last_line - 5))); }
+static void fn_il(void) { insert_line(1); left(1); }
+static void fn_gold_toggle(void) { gold = !gold; }
+static void fn_gold_undel_line(void) { gold = false; undel_line(); }
+static void fn_gold_undel_word(void) { gold = false; undel_word(); }
+static void fn_gold_resize_midscreen(void) {
+  gold = false;
+  resize_info_win();
+  midscreen(scr_vert, point);
+}
+static void fn_gold_search_prompt(void) { gold = false; search_prompt(); }
+static void fn_gold_bottom(void) { gold = false; bottom(); }
+static void fn_gold_eol(void) { gold = false; eol(); }
+static void fn_gold_command_prompt(void) { gold = false; command_prompt(); }
+static void fn_search_1(void) { search(1); }
+
+static control_handler base_fn_key_table[512] = {
+    [KEY_LEFT] = control_left,
+    [KEY_RIGHT] = control_right,
+    [KEY_HOME] = control_bol,
+    [KEY_END] = control_eol,
+    [KEY_UP] = control_up,
+    [KEY_DOWN] = control_down,
+    [KEY_NPAGE] = fn_npage,
+    [KEY_PPAGE] = fn_ppage,
+    [KEY_DL] = control_del_line,
+    [KEY_DC] = del_char,
+    [KEY_BACKSPACE] = control_backspace,
+    [KEY_IL] = fn_il,
+    [KEY_F(1)] = fn_gold_toggle,
+    [KEY_F(2)] = control_und_char,
+    [KEY_F(3)] = control_del_word,
+    [KEY_F(4)] = control_adv_word,
+    [KEY_F(5)] = fn_search_1,
+    [KEY_F(6)] = control_top,
+    [KEY_F(7)] = control_bol,
+    [KEY_F(8)] = adv_line,
+};
+
+static control_handler gold_fn_key_table[512] = {
+    [KEY_LEFT] = control_left,
+    [KEY_RIGHT] = control_right,
+    [KEY_HOME] = control_bol,
+    [KEY_END] = control_eol,
+    [KEY_UP] = control_up,
+    [KEY_DOWN] = control_down,
+    [KEY_NPAGE] = fn_npage,
+    [KEY_PPAGE] = fn_ppage,
+    [KEY_DL] = control_del_line,
+    [KEY_DC] = del_char,
+    [KEY_BACKSPACE] = control_backspace,
+    [KEY_IL] = fn_il,
+    [KEY_F(1)] = fn_gold_toggle,
+    [KEY_F(2)] = fn_gold_undel_line,
+    [KEY_F(3)] = fn_gold_undel_word,
+    [KEY_F(4)] = fn_gold_resize_midscreen,
+    [KEY_F(5)] = fn_gold_search_prompt,
+    [KEY_F(6)] = fn_gold_bottom,
+    [KEY_F(7)] = fn_gold_eol,
+    [KEY_F(8)] = fn_gold_command_prompt,
+};
+
+/* handle function keys via branchless table dispatch */
 void function_key() {
-  if (in == KEY_LEFT) {
-    {
-      left(1);
-    }
-  } else if (in == KEY_RIGHT) {
-    {
-      right(1);
-    }
-  } else if (in == KEY_HOME) {
-    {
-      bol();
-    }
-  } else if (in == KEY_END) {
-    {
-      eol();
-    }
-  } else if (in == KEY_UP) {
-    {
-      up();
-    }
-  } else if (in == KEY_DOWN) {
-    {
-      down();
-    }
-  } else if (in == KEY_NPAGE) {
-    {
-      move_rel('d', max(5, (last_line - 5)));
-    }
-  } else if (in == KEY_PPAGE) {
-    {
-      move_rel('u', max(5, (last_line - 5)));
-    }
-  } else if (in == KEY_DL) {
-    {
-      del_line();
-    }
-  } else if (in == KEY_DC) {
-    {
-      del_char();
-    }
-  } else if (in == KEY_BACKSPACE) {
-    {
-      delete_char_at_cursor(1);
-    }
-  } else if (in == KEY_IL) { /* insert a line before current line	*/
-    insert_line(1);
-    left(1);
-  } else if (in == KEY_F(1)) {
-    {
-      gold = !gold;
-    }
-  } else if (in == KEY_F(2)) {
-    if (gold) {
-      gold = false;
-      undel_line();
-    } else {
-      {
-        undel_char();
-      }
-    }
-  } else if (in == KEY_F(3)) {
-    if (gold) {
-      gold = false;
-      undel_word();
-    } else {
-      {
-        del_word();
-      }
-    }
-  } else if (in == KEY_F(4)) {
-    if (gold) {
-      gold = false;
-      resize_info_win();
-      midscreen(scr_vert, point);
-    } else {
-      {
-        adv_word();
-      }
-    }
-  } else if (in == KEY_F(5)) {
-    if (gold) {
-      gold = false;
-      search_prompt();
-    } else {
-      {
-        search(1);
-      }
-    }
-  } else if (in == KEY_F(6)) {
-    if (gold) {
-      gold = false;
-      bottom();
-    } else {
-      {
-        top();
-      }
-    }
-  } else if (in == KEY_F(7)) {
-    if (gold) {
-      gold = false;
-      eol();
-    } else {
-      {
-        bol();
-      }
-    }
-  } else if (in == KEY_F(8)) {
-    if (gold) {
-      gold = false;
-      command_prompt();
-    } else {
-      {
-        adv_line();
-      }
+  if (in >= 0 && in < 512) {
+    control_handler const *tbl = gold ? gold_fn_key_table : base_fn_key_table;
+    control_handler handler = tbl[in];
+    if (handler != nullptr) {
+      handler();
     }
   }
 }
