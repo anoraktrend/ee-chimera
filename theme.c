@@ -24,7 +24,8 @@ static const struct theme_pair {
 } fish_to_pair[] = {{"fish_color_comment", 1}, {"fish_color_quote", 2},
                     {"fish_color_param", 3},   {"fish_color_operator", 4},
                     {"fish_color_command", 5}, {"fish_color_normal", THEME_PAIR_NORMAL},
-                    {"fish_color_error", 7},   {nullptr, 0}};
+                    {"fish_color_error", 7},   {"fish_color_status", THEME_PAIR_STATUS},
+                    {nullptr, 0}};
 
 static int lookup_named_color(const char *name) {
   if (strcmp(name, "black") == 0)
@@ -276,6 +277,7 @@ static void reset_default_theme(void) {
   init_pair(7, COLOR_MAGENTA, -1);
   init_pair(8, COLOR_RED, -1);
   init_pair(THEME_PAIR_NORMAL, COLOR_WHITE, -1);
+  init_pair(THEME_PAIR_STATUS, COLOR_WHITE, -1);
 }
 
 void apply_startup_theme(void) {

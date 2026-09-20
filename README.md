@@ -48,4 +48,5 @@ themes for the current user.
 The renderer uses these variables as follows: `fish_color_comment` colors
 comments, `fish_color_quote` strings, `fish_color_param` numbers and literals,
 `fish_color_operator` operators, `fish_color_command` functions and commands,
-`fish_color_normal` the default foreground, and `fish_color_error` diagnostics.
+`fish_color_normal` the default foreground, `fish_color_status` the status line,
+and `fish_color_error` diagnostics.

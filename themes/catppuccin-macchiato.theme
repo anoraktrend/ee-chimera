@@ -6,6 +6,7 @@
 # fish_color_operator: operators
 # fish_color_command: functions and commands
 # fish_color_normal: default foreground
+# fish_color_status: status line
 # fish_color_error: diagnostics
 
 [light]

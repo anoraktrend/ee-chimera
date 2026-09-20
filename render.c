@@ -434,6 +434,7 @@ void paint_info_win(void) {
 
   // Construct status line
   ee_wmove(info_win, height - 1, 0);
+  wattron(info_win, COLOR_PAIR(THEME_PAIR_STATUS));
   if (!nohighlight) {
     wstandout(info_win);
   }
@@ -485,6 +486,7 @@ void paint_info_win(void) {
   if (!nohighlight) {
     wstandend(info_win);
   }
+  wattroff(info_win, COLOR_PAIR(THEME_PAIR_STATUS));
   ee_wrefresh(info_win);
 }
 

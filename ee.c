@@ -1526,6 +1526,8 @@ void set_up_term() {
         init_pair(8, COLOR_RED, -1); // error/diagnostic
       if (!profiling_mode)
         init_pair(THEME_PAIR_NORMAL, COLOR_WHITE, -1); // default foreground
+      if (!profiling_mode)
+        init_pair(THEME_PAIR_STATUS, COLOR_WHITE, -1); // status line
     }
 
     curses_initialized = true;
