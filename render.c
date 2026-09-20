@@ -190,7 +190,7 @@ void scanline(const unsigned char *pos) {
 #ifdef HAS_TREESITTER
 [[maybe_unused]] static int get_node_attribute(int line, int col) {
   if (ts_tree == nullptr) {
-    return A_NORMAL;
+    return COLOR_PAIR(THEME_PAIR_NORMAL);
   }
   TSNode root = ts_tree_root_node(ts_tree);
   TSPoint p = {(uint32_t)line - 1, (uint32_t)col};
@@ -224,10 +224,10 @@ void scanline(const unsigned char *pos) {
     if (isalpha((unsigned char)type[0])) {
       return COLOR_PAIR(7);
     }
-    return A_NORMAL;
+    return COLOR_PAIR(THEME_PAIR_NORMAL);
   }
 
-  return A_NORMAL;
+  return COLOR_PAIR(THEME_PAIR_NORMAL);
 }
 #endif
 
@@ -273,7 +273,7 @@ void draw_line(int vertical, int horiz, struct text *restrict line, int t_pos) {
   ee_wclrtoeol(text_win);
   int max_column = last_col;
   while ((posit < line->line_length) && (column <= max_column)) {
-    int attr = A_NORMAL;
+    int attr = COLOR_PAIR(THEME_PAIR_NORMAL);
 #ifdef HAS_TREESITTER
     attr = get_node_attribute(line_no, posit - 1);
 #endif

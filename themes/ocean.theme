@@ -1,4 +1,11 @@
 # name: Ocean
+# fish_color_comment: comments
+# fish_color_quote: strings
+# fish_color_param: numbers and literals
+# fish_color_operator: operators
+# fish_color_command: functions and commands
+# fish_color_normal: default foreground
+# fish_color_error: diagnostics
 fish_color_comment cyan
 fish_color_quote yellow
 fish_color_param brcyan

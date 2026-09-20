@@ -23,7 +23,7 @@ static const struct theme_pair {
   int pair;
 } fish_to_pair[] = {{"fish_color_comment", 1}, {"fish_color_quote", 2},
                     {"fish_color_param", 3},   {"fish_color_operator", 4},
-                    {"fish_color_command", 5}, {"fish_color_normal", 6},
+                    {"fish_color_command", 5}, {"fish_color_normal", THEME_PAIR_NORMAL},
                     {"fish_color_error", 7},   {nullptr, 0}};
 
 static int lookup_named_color(const char *name) {
@@ -214,6 +214,12 @@ static void scan_themes(void) {
 
   const char *home = getenv("HOME");
   if (home) {
+    char local_dir[MAX_THEME_PATH];
+    int local_len =
+        snprintf(local_dir, sizeof(local_dir), "%s/.config/ee/themes", home);
+    if (local_len > 0 && local_len < (int)sizeof(local_dir))
+      scan_theme_dir(local_dir);
+
     char user_dir[MAX_THEME_PATH];
     int len =
         snprintf(user_dir, sizeof(user_dir), "%s/.config/fish/themes", home);
@@ -269,6 +275,7 @@ static void reset_default_theme(void) {
   init_pair(6, COLOR_WHITE, -1);
   init_pair(7, COLOR_MAGENTA, -1);
   init_pair(8, COLOR_RED, -1);
+  init_pair(THEME_PAIR_NORMAL, COLOR_WHITE, -1);
 }
 
 void apply_startup_theme(void) {

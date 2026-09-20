@@ -37,3 +37,15 @@ A primary technical goal of this project is the implementation of **branchless a
 ## Usage
 
 See `ee.1` for the manual page and `ee.i18n.guide` for internationalization information.
+
+## Themes
+
+Syntax themes use Fish's `fish_color_*` variables. The editor scans themes in
+`./themes`, `~/.config/ee/themes`, the installed `share/ee/themes` directory,
+and Fish's theme directories. Run `make install-local` to install the bundled
+themes for the current user.
+
+The renderer uses these variables as follows: `fish_color_comment` colors
+comments, `fish_color_quote` strings, `fish_color_param` numbers and literals,
+`fish_color_operator` operators, `fish_color_command` functions and commands,
+`fish_color_normal` the default foreground, and `fish_color_error` diagnostics.

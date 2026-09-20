@@ -58,8 +58,8 @@ install: all
 	install -m 644 ee.1 $(DESTDIR)$(MANDIR)/man1/ee.1
 	install -d $(DESTDIR)$(MANDIR)/man5
 	install -m 644 init.ee.5 $(DESTDIR)$(MANDIR)/man5/init.ee.5
-		install -d $(DESTDIR)$(RESDIR)/themes
-		install -m 644 themes/*.theme $(DESTDIR)$(RESDIR)/themes/
+	install -d $(DESTDIR)$(RESDIR)/themes
+	install -m 644 themes/*.theme $(DESTDIR)$(RESDIR)/themes/
 	@if [ -f root.res ]; then \
 		install -d $(DESTDIR)$(RESDIR); \
 		install -m 644 root.res $(DESTDIR)$(RESDIR)/root.res; \
@@ -70,6 +70,10 @@ uninstall:
 	rm -f $(DESTDIR)$(MANDIR)/man1/ee.1
 	rm -f $(DESTDIR)$(MANDIR)/man5/init.ee.5
 	rm -rf $(DESTDIR)$(RESDIR)
+
+install-local:
+	install -d $(HOME)/.config/ee/themes
+	install -m 644 themes/*.theme $(HOME)/.config/ee/themes/
 
 # Safety checks
 safety: clean
