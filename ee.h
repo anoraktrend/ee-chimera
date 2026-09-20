@@ -110,6 +110,7 @@ int search_wrapper(int arg);
 [[nodiscard]] int menu_op_wrapper(struct menu_entries *m);
 #endif
 void no_op(void);
+void reset_terminal_display(void);
 
 #define ee_wmove(w, y, x) \
   do { \

@@ -1314,6 +1314,7 @@ int quit(int noverify) {
       ee_wrefresh(info_win);
     }
     ee_wrefresh(com_win);
+    reset_terminal_display();
     resetty();
     if (!profiling_mode)
       endwin();
@@ -1327,6 +1328,14 @@ int quit(int noverify) {
     check_fp();
   }
   return 0;
+}
+
+void reset_terminal_display(void) {
+  if (profiling_mode)
+    return;
+
+  fputs("\033[2 q\033[0m", stdout);
+  fflush(stdout);
 }
 
 void cleanup() {
@@ -1367,6 +1376,7 @@ void cleanup() {
 [[noreturn]] void edit_abort(int arg) {
   (void)arg;
   ee_wrefresh(com_win);
+  reset_terminal_display();
   resetty();
   if (!profiling_mode)
     endwin();
