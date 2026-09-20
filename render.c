@@ -421,6 +421,7 @@ void paint_info_win(void) {
   getmaxyx(info_win, height, width);
 
   ee_werase(info_win);
+  wattron(info_win, COLOR_PAIR(THEME_PAIR_NORMAL));
   for (counter = 0; counter < num_info_lines && counter < height - 1;
        counter++) {
     ee_wmove(info_win, counter, 0);
@@ -429,6 +430,7 @@ void paint_info_win(void) {
       ee_waddstr(info_win, dynamic_info_lines[counter]);
     }
   }
+  wattroff(info_win, COLOR_PAIR(THEME_PAIR_NORMAL));
 
   // Construct status line
   ee_wmove(info_win, height - 1, 0);
