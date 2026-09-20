@@ -3,9 +3,10 @@
 CC ?= clang
 CFLAGS ?= -std=c23 -g -O2 -D_GNU_SOURCE -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600
 LDFLAGS ?= -lcursesw
+LDFLAGS += -ltree-sitter -ltree-sitter-c
 
 # Feature flags (set in config.mk or via configure.sh)
-CFLAGS += -DHAS_LSP -DHAS_TREE_SITTER -DHAS_ICU
+CFLAGS += -DHAS_LSP -DHAS_TREESITTER -DHAS_ICU
 
 # make safety: hard-fail any use of banned APIs (see Banned.h for reasons)
 CFLAGS += -include $(CURDIR)/Banned.h

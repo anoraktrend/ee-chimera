@@ -27,6 +27,7 @@ extern int last_col;       /* last column for text display        */
 extern int horiz_offset;   /* offset from left edge of text    */
 extern bool clear_com_win; /* flag to indicate com_win needs clearing */
 extern bool text_changes;  /* indicate changes have been made to text */
+extern bool lsp_change_pending;
 extern bool info_window;   /* flag to indicate if help window visible */
 extern int info_type;      /* flag to indicate type of info to display */
 extern bool expand_tabs;   /* flag for expanding tabs        */
@@ -34,6 +35,7 @@ extern bool formatted;
 extern bool pasting_mode;
 extern bool formatting_in_progress;
 extern bool profiling_mode; /* flag indicating paragraph formatted    */
+#include <stdbool.h>
 #ifdef HAS_AUTOFORMAT
 extern bool auto_format; /* flag for auto_format mode        */
 #endif
@@ -48,6 +50,7 @@ extern bool emacs_keys_mode;    /* mode for if emacs key binings are used    */
 extern bool vi_keys_mode;
 extern bool vi_insert_mode;
 extern bool ee_chinese; /* allows handling of multi-byte characters  */
+extern bool function_keys_visible; /* flag to indicate if function keys are visible */
 
 // Global variables
 extern unsigned char *point; /* points to current position in line    */

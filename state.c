@@ -36,7 +36,9 @@ int last_col;                 /* last column for text display        */
 int horiz_offset = 0;         /* offset from left edge of text    */
 bool clear_com_win;           /* flag to indicate com_win needs clearing */
 bool text_changes = false;    /* indicate changes have been made to text */
+bool lsp_change_pending = false;
 bool info_window = true;      /* flag to indicate if help window visible */
+bool function_keys_visible = true; /* flag to indicate if function keys are visible */
 int info_type = CONTROL_KEYS; /* flag to indicate type of info to display */
 static time_t last_redraw_time = 0;
 bool expand_tabs = true; /* flag for expanding tabs        */
@@ -494,7 +496,7 @@ int main(int argc, char *argv[]) {
 
     process_key(in);
 
-    if (text_changes) {
+    if (lsp_change_pending) {
 #ifdef HAS_TREESITTER
       reparse();
 #endif
@@ -503,7 +505,7 @@ int main(int argc, char *argv[]) {
         lsp_change_file((const char *)in_file_name);
       }
 #endif
-      text_changes = false;
+      lsp_change_pending = false;
     }
   }
   return 0;

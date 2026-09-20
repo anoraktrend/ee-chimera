@@ -9,7 +9,7 @@ extern struct menu_entries config_dump_menu[];
 extern struct menu_entries leave_menu[];
 extern struct menu_entries misc_menu[];
 extern struct menu_entries main_menu[];
-extern char *mode_strings[12];
+extern char *mode_strings[13];
 
 int menu_op(struct menu_entries menu_list[]);
 void paint_menu(struct menu_entries menu_list[], int max_width,

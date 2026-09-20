@@ -424,7 +424,7 @@ static void fn_gold_eol(void) { gold = false; eol(); }
 static void fn_gold_command_prompt(void) { gold = false; command_prompt(); }
 static void fn_search_1(void) { search(1); }
 
-static control_handler base_fn_key_table[512] = {
+control_handler base_fn_key_table[512] = {
     [KEY_LEFT] = control_left,
     [KEY_RIGHT] = control_right,
     [KEY_HOME] = control_bol,
@@ -447,7 +447,7 @@ static control_handler base_fn_key_table[512] = {
     [KEY_F(8)] = adv_line,
 };
 
-static control_handler gold_fn_key_table[512] = {
+control_handler gold_fn_key_table[512] = {
     [KEY_LEFT] = control_left,
     [KEY_RIGHT] = control_right,
     [KEY_HOME] = control_bol,
@@ -470,6 +470,38 @@ static control_handler gold_fn_key_table[512] = {
     [KEY_F(8)] = fn_gold_command_prompt,
 };
 
+const char *function_key_description(control_handler handler) {
+  if (handler == del_char)
+    return "delete character";
+  if (handler == fn_npage)
+    return "next page";
+  if (handler == fn_ppage)
+    return "previous page";
+  if (handler == fn_il)
+    return "insert line";
+  if (handler == fn_gold_toggle)
+    return "toggle GOLD mode";
+  if (handler == fn_gold_undel_line)
+    return "undelete line";
+  if (handler == fn_gold_undel_word)
+    return "undelete word";
+  if (handler == fn_gold_resize_midscreen)
+    return "resize text screen";
+  if (handler == fn_gold_search_prompt)
+    return "search prompt";
+  if (handler == fn_gold_bottom)
+    return "bottom of text";
+  if (handler == fn_gold_eol)
+    return "end of line";
+  if (handler == fn_gold_command_prompt)
+    return "command prompt";
+  if (handler == fn_search_1)
+    return "search";
+  if (handler == adv_line)
+    return "advance one line";
+  return nullptr;
+}
+
 /* handle function keys via branchless table dispatch */
 void function_key() {
   if (in >= 0 && in < 512) {
@@ -477,6 +509,8 @@ void function_key() {
     control_handler handler = tbl[in];
     if (handler != nullptr) {
       handler();
+      if (info_window && !pasting_mode)
+        paint_info_win();
     }
   }
 }

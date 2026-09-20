@@ -257,7 +257,7 @@ UResourceBundle *icu_bundle = nullptr;
  |	allocate space here for the strings that will be in the menu
  */
 
-#define MAX_INFO_LINES 12
+#define MAX_INFO_LINES 64
 char *dynamic_info_lines[MAX_INFO_LINES];
 int num_info_lines = 0;
 
@@ -445,6 +445,7 @@ void insert(int character) {
   }
 
   text_changes = true;
+  lsp_change_pending = true;
   size_t move_len = curr_line->line_length - position;
   /* Bulk move + copy (safe: utf8_buf is local, no overlap) */
   memmove(point + utf8_len, point, move_len);
@@ -607,6 +608,7 @@ void insert_line(int disp) {
   struct text *temp_nod;
 
   text_changes = true;
+  lsp_change_pending = true;
   ee_wmove(text_win, scr_vert, (scr_horz - horiz_offset));
   ee_wclrtoeol(text_win);
   temp_nod = txtalloc();
@@ -699,6 +701,7 @@ void up() {
     prevline();
     point = curr_line->line;
     find_pos();
+    scr_pos = scr_horz;
   }
 }
 
@@ -707,6 +710,7 @@ void down() {
   if (curr_line->next_line != nullptr) {
     nextline();
     find_pos();
+    scr_pos = scr_horz;
   }
 }
 
@@ -915,7 +919,7 @@ int get_string_len(char *line, int offset, int column) {
   return j;
 }
 
-/* read string from input on command line */
+/* read string from input in a menu-like popup input field */
 char *get_string(char *prompt, int advance) {
   char *string;
 #ifdef HAS_LIBEDIT
@@ -939,7 +943,6 @@ char *get_string(char *prompt, int advance) {
     if (!profiling_mode)
       endwin();
 
-    // Print prompt again since we just did endwin
     printf("\r%s", prompt);
     fflush(stdout);
 
@@ -956,7 +959,6 @@ char *get_string(char *prompt, int advance) {
     if (line != nullptr && count > 0) {
       string = malloc(count + 1);
       strscpy(string, line, count + 1);
-      // Remove trailing newline
       char *nl = strchr(string, '\n');
       if (nl)
         *nl = '\0';
@@ -986,83 +988,91 @@ char *get_string(char *prompt, int advance) {
     return empty_str;
   }
 #endif
-  char *tmp_string;
-  char *nam_str;
-  char *g_point;
-  int tmp_int;
-  int g_horz;
-  int g_position;
-  int g_pos;
-  int esc_flag;
 
-  g_point = tmp_string = malloc(512);
-  ee_wmove(com_win, 0, 0);
-  ee_wclrtoeol(com_win);
+  const int field_w = max(24, min(COLS - 8, 60));
+  const int field_h = 6;
+  const int win_y = max(1, (LINES - field_h) / 2);
+  const int win_x = max(0, (COLS - field_w) / 2);
+  WINDOW *input_win = newwin(field_h, field_w, win_y, win_x);
+  if (input_win == nullptr) {
+    return strdup("");
+  }
+  keypad(input_win, true);
 
-  ee_waddstr(com_win, prompt);
-  ee_wrefresh(com_win);
-  nam_str = tmp_string;
-  clear_com_win = true;
-  g_horz = g_position = get_string_len(prompt, strlen(prompt), 0);
-  g_pos = 0;
-  do {
-    esc_flag = 0;
-    in = wgetch(com_win);
-    if (in == -1) {
+  char buffer[512] = {0};
+  char *tmp = nullptr;
+  int cursor = 0;
+  int ch;
+
+  if (prompt != nullptr) {
+    const char *existing = prompt;
+    if (existing[0] == ' ' || existing[0] == '\t') {
+      existing = next_word((char *)existing);
+    }
+    (void)existing;
+  }
+
+  while (true) {
+    werase(input_win);
+    box(input_win, 0, 0);
+    mvwaddstr(input_win, 1, 2, prompt ? prompt : "Input:");
+    mvwhline(input_win, 3, 2, ACS_HLINE, field_w - 4);
+    if (buffer[0] != '\0') {
+      mvwaddnstr(input_win, 3, 2, buffer, field_w - 6);
+    }
+    wmove(input_win, 3, min(field_w - 3, 2 + cursor));
+    wrefresh(input_win);
+
+    ch = wgetch(input_win);
+    if (ch == -1) {
       edit_abort(0);
     }
-    if (((in == 8) || (in == 127) || (in == KEY_BACKSPACE)) && (g_pos > 0)) {
-      tmp_int = g_horz;
-      g_pos--;
-      g_horz = get_string_len(g_point, g_pos, g_position);
-      tmp_int = tmp_int - g_horz;
-      for (; 0 < tmp_int; tmp_int--) {
-        if ((g_horz + tmp_int) < (last_col - 1)) {
-          ee_waddch(com_win, '\010');
-          ee_waddch(com_win, ' ');
-          ee_waddch(com_win, '\010');
-        }
-      }
-      nam_str--;
-    } else if ((in != 8) && (in != 127) && (in != '\n') && (in != '\r') &&
-               (in < 256)) {
-      if (in == '\026') /* control-v, accept next character verbatim	*/
-      {                 /* allows entry of ^m, ^j, and ^h	*/
-        esc_flag = 1;
-        in = wgetch(com_win);
-        if (in == -1) {
-          edit_abort(0);
-        }
-      }
-      *nam_str = in;
-      g_pos++;
-      if ((isprint((unsigned char)in) == 0) && (g_horz < (last_col - 1))) {
-        {
-          g_horz += out_char(com_win, in, g_horz);
-        }
-      } else {
-        g_horz++;
-        if (g_horz < (last_col - 1)) {
-          ee_waddch(com_win, (unsigned char)in);
-        }
-      }
-      nam_str++;
+    if (ch == 27) {
+      buffer[0] = '\0';
+      cursor = 0;
+      break;
     }
-    ee_wrefresh(com_win);
-    if (esc_flag != 0) {
-      in = '\0';
+    if (ch == '\n' || ch == '\r') {
+      break;
     }
-  } while ((in != '\n') && (in != '\r'));
-  *nam_str = '\0';
-  nam_str = tmp_string;
-  if (((*nam_str == ' ') || (*nam_str == 9)) && (advance != 0)) {
-    nam_str = next_word(nam_str);
+    if (ch == KEY_BACKSPACE || ch == 127 || ch == 8) {
+      if (cursor > 0) {
+        memmove(&buffer[cursor - 1], &buffer[cursor], strlen(buffer + cursor) + 1);
+        cursor--;
+      }
+      continue;
+    }
+    if (ch == KEY_DC || ch == 4) {
+      if (cursor < (int)strlen(buffer)) {
+        memmove(&buffer[cursor], &buffer[cursor + 1], strlen(buffer + cursor + 1) + 1);
+      }
+      continue;
+    }
+    if (ch == 22) {
+      ch = wgetch(input_win);
+      if (ch == -1) {
+        edit_abort(0);
+      }
+    }
+    if (ch >= 32 && ch <= 126) {
+      size_t len = strlen(buffer);
+      if (len + 1 < sizeof(buffer)) {
+        memmove(&buffer[cursor + 1], &buffer[cursor], len - cursor + 1);
+        buffer[cursor++] = (char)ch;
+      }
+    }
   }
-  size_t string_len = strlen(nam_str) + 1;
-  string = malloc(string_len);
-  strscpy(string, nam_str, string_len);
 
-  free(tmp_string);
+  tmp = buffer;
+  if (advance && ((tmp[0] == ' ') || (tmp[0] == '\t'))) {
+    tmp = next_word(tmp);
+  }
+
+  string = strdup(tmp);
+  delwin(input_win);
+  if (string == nullptr) {
+    string = strdup("");
+  }
   ee_wrefresh(com_win);
   return string;
 }
@@ -1575,9 +1585,73 @@ static void buf_append(char *restrict buf, size_t *restrict pos, size_t cap,
   buf[*pos] = '\0';
 }
 
+static const char *shortcut_description(control_handler handler) {
+  for (int i = 0; commands_table[i].name != nullptr; i++) {
+    if (commands_table[i].handler == handler)
+      return commands_table[i].short_desc;
+  }
+  if (handler == bottom)
+    return "move to bottom of text";
+  if (handler == top)
+    return "move to top of text";
+  if (handler == bol)
+    return "move to beginning of line";
+  if (handler == eol)
+    return "move to end of line";
+  if (handler == del_char)
+    return "delete character at cursor";
+  if (handler == del_line)
+    return "delete current line";
+  if (handler == del_word)
+    return "delete word at cursor";
+  if (handler == adv_word)
+    return "advance to next word";
+  if (handler == prev_word)
+    return "move to previous word";
+  if (handler == redraw)
+    return "redraw the screen";
+  if (handler == command_prompt)
+    return "enter command mode";
+  if (handler == set_mark)
+    return "set mark for region";
+  if (handler == paste_region)
+    return "paste clipboard at cursor";
+  if (handler == replace_prompt)
+    return "prompt for replacement";
+  if (handler == gold_toggle)
+    return "toggle GOLD mode";
+  return nullptr;
+}
+
+static void append_shortcuts(char *restrict buf, size_t *restrict pos,
+                             size_t cap, control_handler *table, int count) {
+  for (int i = 0; i < count; i++) {
+    control_handler handler = table[i];
+    if (handler == nullptr || handler == no_op)
+      continue;
+
+    const char *description = shortcut_description(handler);
+    if (description == nullptr)
+      description = function_key_description(handler);
+    if (description == nullptr)
+      description = "function key action";
+
+    char item[128];
+    int n = snprintf(item, sizeof(item), "%s %s  ", get_key_name(i),
+                     description);
+    size_t item_len = (n > 0 && (size_t)n < sizeof(item))
+                          ? (size_t)n
+                          : sizeof(item) - 1;
+    if (*pos + item_len >= cap - 1)
+      break;
+    buf_append(buf, pos, cap, item);
+    buf_append(buf, pos, cap, "\x1f");
+  }
+}
+
 void generate_dynamic_info() {
-  static char total_buf[4096];
-  static char lines_buf[MAX_INFO_LINES][256];
+  static char total_buf[16384];
+  static char lines_buf[MAX_INFO_LINES][512];
   size_t buf_pos = 0;
   total_buf[0] = '\0';
   num_info_lines = 0;
@@ -1596,17 +1670,25 @@ void generate_dynamic_info() {
   buf_append(total_buf, &buf_pos, sizeof(total_buf), "Esc menu  ");
 #endif
 
-  for (int i = 0; commands_table[i].name != nullptr; i++) {
-    const char *key = get_key_binding(commands_table[i].handler, tbl);
-    if (key[0] != '\0') {
-      char item[64];
-      int n = snprintf(item, sizeof(item), "%s %s  ", key,
-                       commands_table[i].short_desc);
-      size_t ilen = (size_t)n < sizeof(item) ? (size_t)n : sizeof(item) - 1;
-      if (buf_pos + ilen < sizeof(total_buf) - 1) {
-        buf_append(total_buf, &buf_pos, sizeof(total_buf), item);
-      }
-    }
+  // Show the real editor modes in the main info window: GOLD activates the
+  // secondary command layer, and SELECT reflects an active region mark.
+  {
+    char mode_line[256];
+    const char *gold_mode = gold ? "GOLD" : "BASE";
+    const char *select_mode = (mark_line != nullptr) ? "SELECT" : "NORMAL";
+    snprintf(mode_line, sizeof(mode_line), "Modes: %s %s", gold_mode,
+             select_mode);
+    buf_append(total_buf, &buf_pos, sizeof(total_buf), "\n");
+    buf_append(total_buf, &buf_pos, sizeof(total_buf), mode_line);
+  }
+
+  buf_append(total_buf, &buf_pos, sizeof(total_buf), "\nShortcuts: ");
+  append_shortcuts(total_buf, &buf_pos, sizeof(total_buf), tbl, 1024);
+
+  control_handler *fn_tbl = gold ? gold_fn_key_table : base_fn_key_table;
+  if (function_keys_visible) {
+    buf_append(total_buf, &buf_pos, sizeof(total_buf), "\nFunction keys: ");
+    append_shortcuts(total_buf, &buf_pos, sizeof(total_buf), fn_tbl, 512);
   }
 
   // Word wrap
@@ -1616,30 +1698,49 @@ void generate_dynamic_info() {
 
   char *p = total_buf;
   while (*p != '\0' && num_info_lines < MAX_INFO_LINES - 1) {
-    int len = strlen(p);
-    if (len > width - 1) {
-      int split = width - 1;
-      while (split > 0 && p[split] != ' ')
-        split--;
-      if (split == 0)
-        split = width - 1;
+    char *newline = strchr(p, '\n');
+    size_t line_len = newline == nullptr ? strlen(p) : (size_t)(newline - p);
 
-      int cpy_len = min(split, 255);
-      memcpy(lines_buf[num_info_lines], p, cpy_len);
-      lines_buf[num_info_lines][cpy_len] = '\0';
+    if (line_len == 0) {
       dynamic_info_lines[num_info_lines] = lines_buf[num_info_lines];
-      num_info_lines++;
-      p += split;
-      while (*p == ' ')
-        p++;
-    } else {
-      size_t cpy_len2 = min(len, 255);
-      memcpy(lines_buf[num_info_lines], p, cpy_len2);
-      lines_buf[num_info_lines][cpy_len2] = '\0';
-      dynamic_info_lines[num_info_lines] = lines_buf[num_info_lines];
-      num_info_lines++;
-      break;
+      lines_buf[num_info_lines++][0] = '\0';
+      p += newline == nullptr ? 0 : 1;
+      continue;
     }
+
+    while (line_len > 0 && num_info_lines < MAX_INFO_LINES - 1) {
+      size_t split = line_len;
+      if (split > (size_t)(width - 1)) {
+        split = (size_t)(width - 1);
+        while (split > 0 && p[split] != '\x1f')
+          split--;
+        if (split == 0)
+          split = (size_t)(width - 1);
+      }
+
+      size_t copy_len = min(split, sizeof(lines_buf[0]) - 1);
+      int line_index = num_info_lines++;
+      memcpy(lines_buf[line_index], p, copy_len);
+      for (size_t i = 0; i < copy_len; i++) {
+        if (lines_buf[line_index][i] == '\x1f')
+          lines_buf[line_index][i] = ' ';
+      }
+      lines_buf[line_index][copy_len] = '\0';
+      dynamic_info_lines[line_index] = lines_buf[line_index];
+      p += split;
+      line_len -= split;
+      if (line_len > 0 && *p == '\x1f') {
+        p++;
+        line_len--;
+      }
+      while (line_len > 0 && *p == ' ') {
+        p++;
+        line_len--;
+      }
+    }
+
+    if (*p == '\n')
+      p++;
   }
 }
 
@@ -1950,6 +2051,9 @@ void ee_init() {
         else if (strcmp(yk, "info") == 0) {
           info_window = strcmp(yv, "true") == 0;
           resize_info_win();
+        } else if (strcmp(yk, "function_keys") == 0) {
+          function_keys_visible = strcmp(yv, "true") == 0;
+          resize_info_win();
         } else if (strcmp(yk, "margins") == 0)
           observ_margins = strcmp(yv, "true") == 0;
         else if (strcmp(yk, "autoformat") == 0) {
@@ -2072,6 +2176,8 @@ void dump_ee_conf(void) {
   fprintf(f, "case: %s\n", case_sen ? "true" : "false");
   fprintf(f, "expand: %s\n", expand_tabs ? "true" : "false");
   fprintf(f, "info: %s\n", info_window ? "true" : "false");
+    fprintf(f, "function_keys: %s\n",
+      function_keys_visible ? "true" : "false");
   fprintf(f, "margins: %s\n", observ_margins ? "true" : "false");
   fprintf(f, "autoformat: %s\n", auto_format ? "true" : "false");
   fprintf(f, "printcommand: %s\n", print_command ? print_command : "lpr");
@@ -2348,6 +2454,35 @@ int unique_test(char *string, char *list[]) {
 
 const char *get_key_name(int i) {
   static char key[16];
+  if (i == KEY_LEFT)
+    return "Left";
+  if (i == KEY_RIGHT)
+    return "Right";
+  if (i == KEY_UP)
+    return "Up";
+  if (i == KEY_DOWN)
+    return "Down";
+  if (i == KEY_HOME)
+    return "Home";
+  if (i == KEY_END)
+    return "End";
+  if (i == KEY_NPAGE)
+    return "PageDown";
+  if (i == KEY_PPAGE)
+    return "PageUp";
+  if (i == KEY_DL)
+    return "DeleteLine";
+  if (i == KEY_DC)
+    return "Delete";
+  if (i == KEY_IL)
+    return "InsertLine";
+  if (i == KEY_BACKSPACE)
+    return "Backspace";
+  if (i >= 256 && i < 512) {
+    const char *name = keyname(i);
+    if (name != nullptr)
+      return name;
+  }
   if (i == 0)
     return "^@";
   if (i < 27) {
@@ -2444,6 +2579,8 @@ void strings_init() {
   mode_strings[10] =
       locale_string("sixteen_bit_chars", "16 bit characters    ");
   mode_strings[11] =
+      locale_string("function_keys_toggle", "function keys");
+    mode_strings[12] =
       locale_string("save_editor_config", "save editor configuration");
 
   leave_menu[0].item_string = locale_string("leave_menu", "leave menu");
@@ -2743,7 +2880,7 @@ void strings_init() {
       "unable to open .init.ee for writing, no configuration saved!");
   conf_dump_success_msg =
       locale_string("config_saved_msg", "ee configuration saved in file %s");
-  modes_menu[11].item_string = mode_strings[11];
+  modes_menu[12].item_string = mode_strings[12];
   config_dump_menu[0].item_string =
       locale_string("save_ee_config", "save ee configuration");
   config_dump_menu[1].item_string =
@@ -2819,8 +2956,8 @@ void strings_init() {
    |	allocate space for strings here for settings menu
    */
 
-  for (counter = 1; counter < NUM_MODES_ITEMS; counter++) {
-    modes_menu[counter].item_string = malloc(80);
+  for (counter = 1; counter < NUM_MODES_ITEMS - 1; counter++) {
+    modes_menu[counter].item_string = malloc(128);
   }
 }
 

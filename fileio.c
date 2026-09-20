@@ -122,6 +122,7 @@ void check_fp() {
     ee_wmove(com_win, 0, 0);
     ee_wclrtoeol(com_win);
     text_changes = true;
+    lsp_change_pending = true;
     if ((tmp_file != nullptr) && (*tmp_file != '\0')) {
       ee_wprintw(com_win, file_read_fin_msg, tmp_file);
     }
@@ -198,6 +199,7 @@ void get_file(const char *file_name) {
   } else if (can_read != 0) {
     { /* not input_file and file is non-zero size */
       text_changes = true;
+      lsp_change_pending = true;
     }
   }
 

@@ -1,6 +1,7 @@
 #include "menu.h"
 #include "ee.h"
 #include "fileio.h"
+#include "state.h"
 #include "theme.h"
 bool nohighlight = false; /* turns off highlighting		*/
 struct menu_entries modes_menu[] = {
@@ -16,12 +17,13 @@ struct menu_entries modes_menu[] = {
     {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 8. vi key bindings	*/
     {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 9. right margin	*/
     {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 10. chinese text	*/
+    {"", nullptr, nullptr, nullptr, nullptr, -1}, /* 11. function keys */
     {"", nullptr, nullptr, nullptr, dump_ee_conf,
-     -1}, /* 11. save editor config */
+     -1}, /* 12. save editor config */
     {nullptr, nullptr, nullptr, nullptr, nullptr, -1}
     /* terminator		*/
 };
-char *mode_strings[12];
+char *mode_strings[13];
 struct menu_entries config_dump_menu[] = {
     {"", nullptr, nullptr, nullptr, nullptr, 0},
     {"", nullptr, nullptr, nullptr, nullptr, -1},
@@ -378,6 +380,10 @@ static void mode_toggle_info_win(void) {
   info_window = !info_window;
   resize_info_win();
 }
+static void mode_toggle_function_keys(void) {
+  function_keys_visible = !function_keys_visible;
+  resize_info_win();
+}
 static void mode_toggle_emacs(void) {
   emacs_keys_mode = !emacs_keys_mode;
   if (emacs_keys_mode)
@@ -414,13 +420,14 @@ static void mode_toggle_chinese(void) {
   redraw();
 }
 
-static const mode_handler_fn mode_handlers[12] = {
+static const mode_handler_fn mode_handlers[13] = {
     [1] = mode_toggle_tabs,
     [2] = mode_toggle_case,
     [3] = mode_toggle_margins,
     [4] = mode_toggle_autoformat,
     [5] = mode_toggle_eightbit,
     [6] = mode_toggle_info_win,
+    [11] = mode_toggle_function_keys,
     [7] = mode_toggle_emacs,
     [8] = mode_toggle_vi,
     [9] = mode_set_margin,
@@ -452,10 +459,13 @@ void modes_op() {
              right_margin);
     snprintf(modes_menu[10].item_string, 128, "%s %s", mode_strings[10],
              (ee_chinese ? STATE_ON : STATE_OFF));
+    snprintf(modes_menu[11].item_string, 128, "%s %s", mode_strings[11],
+         (function_keys_visible ? STATE_ON : STATE_OFF));
+    modes_menu[12].item_string = mode_strings[12];
 
     ret_value = menu_op(modes_menu);
 
-    if (ret_value >= 1 && ret_value < 12 && mode_handlers[ret_value] != nullptr) {
+    if (ret_value >= 1 && ret_value < 13 && mode_handlers[ret_value] != nullptr) {
       mode_handlers[ret_value]();
     }
   } while (ret_value != 0);

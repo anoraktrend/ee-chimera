@@ -62,6 +62,12 @@ extern bool profiling_mode;
 
 typedef void (*control_handler)(void);
 
+extern bool lsp_change_pending;
+
+extern control_handler base_fn_key_table[512];
+extern control_handler gold_fn_key_table[512];
+const char *function_key_description(control_handler handler);
+
 struct text {
   unsigned char *line;
   int line_length;
@@ -230,9 +236,9 @@ extern char *emacs_control_keys[5];
 extern char *command_strings[5];
 extern char *commands[32];
 extern char *init_strings[32];
-extern char *mode_strings[12];
+extern char *mode_strings[13];
 
-enum { NUM_MODES_ITEMS = 11 };
+enum { NUM_MODES_ITEMS = 13 };
 enum { READ_FILE = 1, WRITE_FILE = 2, SAVE_FILE = 3 };
 enum { MENU_WARN = 1 };
 enum { CONTROL_KEYS = 0, COMMANDS = 1, GOLD_KEYS = 2, EMACS_KEYS = 3 };

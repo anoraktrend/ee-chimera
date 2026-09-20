@@ -84,6 +84,7 @@ void delete_char_at_cursor(int disp) {
   if (point != curr_line->line) /* if not at beginning of line	*/
   {
     text_changes = true;
+    lsp_change_pending = true;
     temp2 = tp = point;
 #ifdef HAS_ICU
     if (ee_chinese) {
@@ -131,6 +132,7 @@ void delete_char_at_cursor(int disp) {
     }
   } else if (curr_line->prev_line != nullptr) {
     text_changes = true;
+    lsp_change_pending = true;
     left(disp); /* go to previous line	*/
     temp_buff = curr_line->next_line;
     if (mark_line == temp_buff) {
@@ -217,6 +219,7 @@ void set_mark() {
   clear_com_win = true;
   if (info_window)
     paint_info_win();
+  draw_screen();
 }
 void copy_region(bool cut) {
   if (!mark_line) {
@@ -453,6 +456,7 @@ void del_word() {
   d_char[1] = tmp_char[1];
   d_char[2] = tmp_char[2];
   text_changes = true;
+  lsp_change_pending = true;
   formatted = false;
 
   if (undo_enabled) {
@@ -518,6 +522,7 @@ void del_line() {
     delete_char_at_cursor(0);
   }
   text_changes = true;
+  lsp_change_pending = true;
 
   if (undo_enabled) {
     undo_record(&undo_state, UNDO_DELETE, curr_line->line_number, position,

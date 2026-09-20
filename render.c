@@ -3,6 +3,7 @@
  */
 
 #include "render.h"
+#include "delete.h"
 #include "ee.h"
 #include "state.h"
 #include "theme.h"
@@ -29,6 +30,33 @@ int tabshift(int temp_int) { return 8 - (temp_int & 7); }
 static constexpr int char_len_table[256] = {[0 ... 8] = 2,   [9] = -1,
                                             [10 ... 31] = 2, [32 ... 126] = 1,
                                             [127] = 2,       [128 ... 255] = 1};
+
+static bool position_is_selected(int line_number, int char_position) {
+  if (mark_line == nullptr)
+    return false;
+
+  int start_line = mark_line->line_number;
+  int start_position = mark_position;
+  int end_line = curr_line->line_number;
+  int end_position = position;
+  if (start_line > end_line ||
+      (start_line == end_line && start_position > end_position)) {
+    int swap_line = start_line;
+    int swap_position = start_position;
+    start_line = end_line;
+    start_position = end_position;
+    end_line = swap_line;
+    end_position = swap_position;
+  }
+
+  if (line_number < start_line || line_number > end_line)
+    return false;
+  if (line_number == start_line && char_position < start_position)
+    return false;
+  if (line_number == end_line && char_position >= end_position)
+    return false;
+  return true;
+}
 
 int out_char(WINDOW *restrict window, int character, int column) {
   int i1;
@@ -83,17 +111,15 @@ int out_char(WINDOW *restrict window, int character, int column) {
 /* return the length of the character */
 int len_char(int character, int column) {
   unsigned char c = (unsigned char)character;
-  int len = char_len_table[c];
-
-  // If eightbit is off and it's high-bit, it's 5 (e.g. <255>)
-  bool high_bit_not_127 = (c > 126) & (c != 127);
-  bool replace_with_5 = (!eightbit) & high_bit_not_127;
-
-  len = (replace_with_5 * 5) + (!replace_with_5 * len);
-
-  // Branchless selection for tab: if c is TAB, use tabshift, else use len
+  int base_width = char_len_table[c];
   int is_tab = (c == '\t');
-  return (is_tab * tabshift(column)) + (!is_tab * len);
+  int high_bit_not_127 = (c > 126u) & (c != 127u);
+  int expand_high = (!eightbit) & high_bit_not_127;
+
+  // Single LUT + mask path: tab width is selected without a branch, while
+  // non-ASCII bytes expand to 5 columns when eightbit output is disabled.
+  int width = base_width + (expand_high & (5 - base_width));
+  return (is_tab * tabshift(column)) + (!is_tab * width);
 }
 
 #ifdef HAS_ICU
@@ -263,6 +289,9 @@ void draw_line(int vertical, int horiz, struct text *restrict line, int t_pos) {
       diag = diag->next;
     }
 #endif
+
+    if (position_is_selected(line_no, posit))
+      attr |= A_REVERSE;
 
     if (text_win != nullptr)
       wattron(text_win, attr);

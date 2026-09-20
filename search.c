@@ -5,17 +5,25 @@
 #endif
 
 #ifdef __x86_64__
-// AVX2 kernel: requires target feature so intrinsics inline correctly
+// AVX2 kernel: requires target feature so intrinsics inline correctly.
+// Keep the vector load bounded to the first 32 bytes of the needle to avoid
+// reading past the allocation for short or medium needles.
 __attribute__((target("avx2"))) static unsigned char *
 memmem_avx2(const unsigned char *haystack, size_t hlen,
             const unsigned char *needle, size_t nlen) {
-  __m256i needle_vec = _mm256_loadu_si256((const __m256i *)needle);
-  for (size_t i = 0; i <= hlen - 32; i += 32) {
+  unsigned char needle_prefix[32];
+  size_t prefix_len = nlen < sizeof(needle_prefix) ? nlen : sizeof(needle_prefix);
+  memcpy(needle_prefix, needle, prefix_len);
+  if (prefix_len < sizeof(needle_prefix)) {
+    memset(needle_prefix + prefix_len, 0, sizeof(needle_prefix) - prefix_len);
+  }
+
+  __m256i needle_vec = _mm256_loadu_si256((const __m256i *)needle_prefix);
+  for (size_t i = 0; i + 31 < hlen; i += 32) {
     __m256i haystack_vec = _mm256_loadu_si256((const __m256i *)(haystack + i));
     __m256i cmp = _mm256_cmpeq_epi8(needle_vec, haystack_vec);
     int mask = _mm256_movemask_epi8(cmp);
     if (mask == 0xFFFFFFFF) {
-      // Full match: verify remaining bytes
       if (memcmp(haystack + i, needle, nlen) == 0) {
         return (unsigned char *)(haystack + i);
       }
@@ -91,8 +99,8 @@ static unsigned char *dup_upper(unsigned char *src) {
   if (!dst) {
     return nullptr;
   }
-  /* Table-driven loop: no branch per byte; compiler can auto-vectorise. */
-  for (size_t i = 0; i < len; i++) {
+  /* LUT-based fold keeps the byte-path branch-free and vectorisable. */
+  for (size_t i = 0; i < len; ++i) {
     dst[i] = upper_table[src[i]];
   }
   dst[len] = '\0';
@@ -130,11 +138,13 @@ static const unsigned char ident_table[256] = {
   const unsigned char *s2 = (const unsigned char *)string2;
 
   while (*s1 != '\0' && *s2 != '\0' && *s1 != ' ' && *s2 != ' ') {
-    if (lut[*s1] != lut[*s2]) {
+    const unsigned char a = lut[*s1];
+    const unsigned char b = lut[*s2];
+    if (a != b) {
       return false;
     }
-    s1++;
-    s2++;
+    ++s1;
+    ++s2;
   }
   return true;
 }
@@ -158,9 +168,11 @@ static const unsigned char ident_table[256] = {
   found = 0;
   srch_line = curr_line;
 
-  /* Start one position past the cursor so we don't re-match the current hit. */
+  /* Start just after the cursor so we don't re-match the current hit, but do
+   * not skip the first byte of the line when the cursor sits at column 1.
+   */
   srch_1 = point;
-  if (position < curr_line->line_length) {
+  if (position > 1 && position < curr_line->line_length) {
     srch_1++;
   }
 
