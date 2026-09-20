@@ -1667,27 +1667,15 @@ void generate_dynamic_info() {
 
   // Add mandatory main menu hint if menu is enabled
 #ifdef HAS_MENU
-  buf_append(total_buf, &buf_pos, sizeof(total_buf), "Esc menu  ");
+  buf_append(total_buf, &buf_pos, sizeof(total_buf), "Esc menu");
 #endif
 
-  // Show the real editor modes in the main info window: GOLD activates the
-  // secondary command layer, and SELECT reflects an active region mark.
-  {
-    char mode_line[256];
-    const char *gold_mode = gold ? "GOLD" : "BASE";
-    const char *select_mode = (mark_line != nullptr) ? "SELECT" : "NORMAL";
-    snprintf(mode_line, sizeof(mode_line), "Modes: %s %s", gold_mode,
-             select_mode);
-    buf_append(total_buf, &buf_pos, sizeof(total_buf), "\n");
-    buf_append(total_buf, &buf_pos, sizeof(total_buf), mode_line);
-  }
-
-  buf_append(total_buf, &buf_pos, sizeof(total_buf), "\nShortcuts: ");
+  buf_append(total_buf, &buf_pos, sizeof(total_buf), " ");
   append_shortcuts(total_buf, &buf_pos, sizeof(total_buf), tbl, 1024);
 
   control_handler *fn_tbl = gold ? gold_fn_key_table : base_fn_key_table;
   if (function_keys_visible) {
-    buf_append(total_buf, &buf_pos, sizeof(total_buf), "\nFunction keys: ");
+    buf_append(total_buf, &buf_pos, sizeof(total_buf), "\n");
     append_shortcuts(total_buf, &buf_pos, sizeof(total_buf), fn_tbl, 512);
   }
 

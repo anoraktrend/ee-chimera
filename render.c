@@ -437,8 +437,12 @@ void paint_info_win(void) {
   }
 
   char status_buf[128];
+  const char *key_mode = gold ? "GOLD"
+                              : (emacs_keys_mode ? "EMACS"
+                                                  : (vi_keys_mode ? "VI" : "BASE"));
+  const char *selection_mode = mark_line != nullptr ? "SELECT" : "NORMAL";
   snprintf(status_buf, sizeof(status_buf),
-           "%s line %d col %d top %d=", (mark_line != nullptr ? "MARK" : ""),
+           "Modes: %s %s line %d col %d top %d=", key_mode, selection_mode,
            curr_line->line_number, scr_pos, absolute_lin);
   int status_len = strlen(status_buf);
 

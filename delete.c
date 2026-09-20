@@ -254,6 +254,14 @@ void copy_region(bool cut) {
   if (clipboard_buf)
     free(clipboard_buf);
   clipboard_buf = malloc(est_size + 1);
+  if (clipboard_buf == nullptr) {
+    ee_wmove(com_win, 0, 0);
+    ee_wclrtoeol(com_win);
+    ee_wprintw(com_win, "Unable to allocate copy buffer.");
+    ee_wrefresh(com_win);
+    clear_com_win = true;
+    return;
+  }
   /* Copy into clipboard buffer */
   char *cb_ptr =
       copy_region_text(clipboard_buf, start_line, start_pos, end_line, end_pos);
