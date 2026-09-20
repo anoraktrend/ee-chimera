@@ -509,8 +509,10 @@ void function_key() {
     control_handler handler = tbl[in];
     if (handler != nullptr) {
       handler();
+      ee_wmove(text_win, scr_vert, scr_horz - horiz_offset);
       if (info_window && !pasting_mode)
         paint_info_win();
+      ee_wrefresh(text_win);
     }
   }
 }
