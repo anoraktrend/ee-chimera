@@ -8,6 +8,10 @@
 
 #define MAX_THEME_PATH 512
 
+#ifndef RESDIR_PATH
+#define RESDIR_PATH "/usr/local/share/ee/"
+#endif
+
 static char theme_names[MAX_THEMES][128];
 static char theme_paths[MAX_THEMES][MAX_THEME_PATH];
 static int theme_count = 0;
@@ -197,6 +201,14 @@ static void scan_themes(void) {
   if (themes_loaded)
     return;
   theme_count = 0;
+
+  scan_theme_dir("./themes");
+
+  char bundled_dir[MAX_THEME_PATH];
+  int bundled_len =
+      snprintf(bundled_dir, sizeof(bundled_dir), "%s/themes", RESDIR_PATH);
+  if (bundled_len > 0 && bundled_len < (int)sizeof(bundled_dir))
+    scan_theme_dir(bundled_dir);
 
   scan_theme_dir("/usr/share/fish/themes");
 

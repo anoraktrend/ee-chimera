@@ -58,6 +58,8 @@ install: all
 	install -m 644 ee.1 $(DESTDIR)$(MANDIR)/man1/ee.1
 	install -d $(DESTDIR)$(MANDIR)/man5
 	install -m 644 init.ee.5 $(DESTDIR)$(MANDIR)/man5/init.ee.5
+		install -d $(DESTDIR)$(RESDIR)/themes
+		install -m 644 themes/*.theme $(DESTDIR)$(RESDIR)/themes/
 	@if [ -f root.res ]; then \
 		install -d $(DESTDIR)$(RESDIR); \
 		install -m 644 root.res $(DESTDIR)$(RESDIR)/root.res; \
