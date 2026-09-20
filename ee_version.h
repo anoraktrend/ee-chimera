@@ -5,7 +5,7 @@
  |	provide a version number for ee
  */
 
-#define EE_VERSION "1.6.0"
-#define DATE_STRING "$Date: 2026/04/14 19:30:00 $"
+#define EE_VERSION "1.6.2"
+#define DATE_STRING "$Date: 2026/09/19 23:30:00 $"
 
 #endif

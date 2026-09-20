@@ -112,7 +112,7 @@ void insert(int character);
 char *ee_copyright_message = "Copyright (c) 1986, 1990, 1991, 1992, 1993, "
                              "1994, 1995, 1996, 2009 Hugh Mahon ";
 
-static char version[] = "@(#) ee, version " EE_VERSION " $Revision: 1.104 $";
+static char version[] = "@(#) ee, version " EE_VERSION " " DATE_STRING;
 
 // Correct prototypes for menu callbacks which expect int (*)(int) or int
 // (*)(struct menu_entries *)
