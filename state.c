@@ -496,6 +496,12 @@ int main(int argc, char *argv[]) {
 
     process_key(in);
 
+    if (mark_line != nullptr) {
+      draw_screen();
+      ee_wmove(text_win, scr_vert, scr_horz - horiz_offset);
+      ee_wrefresh(text_win);
+    }
+
     if (lsp_change_pending) {
 #ifdef HAS_TREESITTER
       reparse();

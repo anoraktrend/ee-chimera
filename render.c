@@ -291,7 +291,7 @@ void draw_line(int vertical, int horiz, struct text *restrict line, int t_pos) {
 #endif
 
     if (position_is_selected(line_no, posit))
-      attr |= A_REVERSE;
+      attr = COLOR_PAIR(0) | A_REVERSE;
 
     if (text_win != nullptr)
       wattron(text_win, attr);

@@ -73,6 +73,16 @@ void update_line_numbers(struct text *line, int delta) {
     curr = curr->next_line;
   }
 }
+
+void update_mark_cursor(void) {
+  if (profiling_mode)
+    return;
+
+  curs_set(1);
+  fputs(mark_line != nullptr ? "\033[4 q" : "\033[2 q", stdout);
+  fflush(stdout);
+}
+
 void delete_char_at_cursor(int disp) {
   unsigned char *tp;
   unsigned char *temp2;
@@ -215,6 +225,7 @@ void set_mark() {
     ee_wclrtoeol(com_win);
     ee_wprintw(com_win, "Mark set.");
   }
+  update_mark_cursor();
   ee_wrefresh(com_win);
   clear_com_win = true;
   if (info_window)

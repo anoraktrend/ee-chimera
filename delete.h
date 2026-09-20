@@ -13,6 +13,7 @@ extern unsigned char *d_word;
 extern unsigned char *d_line;
 
 void update_line_numbers(struct text *line, int delta);
+void update_mark_cursor(void);
 void delete_char_at_cursor(int disp);
 void delete_text(void);
 void set_mark(void);
