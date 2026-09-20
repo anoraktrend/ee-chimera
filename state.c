@@ -94,8 +94,19 @@ static void ee_dump_buffer(int sig) {
 
 /* single key dispatcher shared by the curses loop and the scripted
  * profiling loop so tests exercise the same input pipeline */
+static bool valid_unicode_scalar(int value) {
+  return value >= 0 && value <= 0x10FFFF &&
+         !(value >= 0xD800 && value <= 0xDFFF);
+}
+
 void process_key(int k) {
   in = k;
+  if (k > 127 && !valid_unicode_scalar(k))
+    return;
+  if (k == '\n' || k == '\r') {
+    insert_line(1);
+    return;
+  }
   if (k > 255 && k <= 511) {
     /* curses KEY_* codes top out at 511; larger values are real text */
     function_key();

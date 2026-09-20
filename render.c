@@ -210,6 +210,15 @@ void draw_line(int vertical, int horiz, struct text *restrict line, int t_pos) {
   int d;               /* partial length of special or tab char to display  */
   unsigned char *temp; /* temporary pointer to position in line          */
   int abs_column;      /* offset in screen units from begin of line      */
+
+  if (line == nullptr || line->line == nullptr || line->line_length <= 0 ||
+      line->line_length > line->max_length) {
+    return;
+  }
+  if (t_pos < 1)
+    t_pos = 1;
+  if (t_pos > line->line_length)
+    t_pos = line->line_length;
   int column;          /* horizontal position on screen              */
   int row;             /* vertical position on screen                */
   int posit;           /* temporary position indicator within line        */
@@ -227,7 +236,7 @@ void draw_line(int vertical, int horiz, struct text *restrict line, int t_pos) {
     ee_wmove(text_win, row, 0);
     ee_wclrtoeol(text_win);
   }
-  while (column < 0) {
+  while (column < 0 && posit < line->line_length) {
     d = len_char(*temp, abs_column);
     abs_column += d;
     column += d;
@@ -261,7 +270,7 @@ void draw_line(int vertical, int horiz, struct text *restrict line, int t_pos) {
     if (ee_chinese) {
       int32_t i = 0;
       UChar32 c;
-      U8_NEXT(temp, i, (int32_t)(line->line_length - posit + 1), c);
+      U8_NEXT(temp, i, (int32_t)(line->line_length - posit), c);
       if (c < 0) {
         // Invalid UTF-8: fallback to single-byte
         ee_waddch(text_win, *temp);
@@ -305,7 +314,6 @@ void draw_line(int vertical, int horiz, struct text *restrict line, int t_pos) {
       }
       posit++;
       temp++;
-    }
 #endif
 
     if (text_win != nullptr)
@@ -344,23 +352,10 @@ void draw_screen(void) {
 
 /* center the screen on the cursor */
 void midscreen(int line, unsigned char *ptr) {
-  int counter;
-
   if ((line < 5) || (last_line < 5)) {
     top_of_screen();
     return;
   }
-
-  counter = 0;
-  while ((counter < (last_line / 2)) && (curr_line->prev_line != nullptr)) {
-    curr_line = curr_line->prev_line;
-    counter++;
-  }
-
-  absolute_lin -= counter;
-  scr_vert -= counter;
-  if (scr_vert < 0)
-    scr_vert = 0;
 
   scanline(ptr);
   draw_screen();

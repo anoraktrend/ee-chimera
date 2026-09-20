@@ -394,6 +394,20 @@ void insert(int character) {
   int counter;
   int value;
 
+  if (curr_line == nullptr || curr_line->line == nullptr ||
+      position < 1 || position > curr_line->line_length ||
+      curr_line->line_length > curr_line->max_length) {
+    return;
+  }
+
+#ifdef HAS_ICU
+  if (character > 127 &&
+      (character > 0x10FFFF ||
+       (character >= 0xD800 && character <= 0xDFFF))) {
+    return;
+  }
+#endif
+
   if ((character == '\t') && expand_tabs) {
     int spaces = len_char('\t', scr_horz);
     while (spaces--) {
@@ -477,7 +491,10 @@ void insert(int character) {
   if (observ_margins && (right_margin < scr_pos)) {
     counter = position;
     while (scr_pos > right_margin) {
-      prev_word();
+      if (ee_chinese && position > 1)
+        left(1);
+      else
+        prev_word();
     }
     if (scr_pos == 0) {
       while (position < counter) {
@@ -530,9 +547,9 @@ void insert(int character) {
   if (eaw == U_EA_FULLWIDTH || eaw == U_EA_WIDE) {
     return 2;
   }
-#endif
   return 1;
 }
+#endif
 
 #ifdef HAS_TREESITTER
 [[maybe_unused]] static int get_node_attribute(int line, int col) {
@@ -1727,7 +1744,10 @@ void redraw() {
         clearok(text_win, true);
     }
   }
-  midscreen(scr_vert, point);
+  scanline(point);
+  draw_screen();
+  ee_wrefresh(text_win);
+  ee_wrefresh(com_win);
 }
 
 /*

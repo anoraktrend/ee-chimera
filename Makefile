@@ -1,7 +1,7 @@
 -include config.mk
 
 CC ?= clang
-CFLAGS ?= -std=c23 -O2 -D_GNU_SOURCE -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600
+CFLAGS ?= -std=c23 -g -O2 -D_GNU_SOURCE -D_DEFAULT_SOURCE -D_XOPEN_SOURCE=600
 LDFLAGS ?= -lcursesw
 
 # Feature flags (set in config.mk or via configure.sh)
